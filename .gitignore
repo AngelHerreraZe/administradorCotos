@@ -1,0 +1,141 @@
+# ══════════════════════════════════════════════════════════════════════
+# .GITIGNORE UNIVERSAL: ADMINISTRADOR DE COTOS (MONOREPO TURBOREPO)
+# ══════════════════════════════════════════════════════════════════════
+
+# --- DEPENDENCIAS Y PAQUETES ---
+node_modules/
+.pnp/
+.pnp.js
+.yarn/cache/
+.yarn/unplugged/
+.yarn/build-state.yml
+.yarn/install-state.gz
+.pnpm-store/
+
+# --- ENTORNO, SECRETOS Y CREDENCIALES (SEGURIDAD CRÍTICA) ---
+# NUNCA commitear credenciales, API keys o tokens reales
+.env
+.env.*
+!.env.example
+!.env.test.example
+
+# Certificados digitales y llaves privadas (SAT CSD, SSL/TLS, JWT)
+*.pem
+*.key
+*.cer
+*.crt
+*.pfx
+*.p12
+*.jks
+*.keystore
+*.der
+
+# Credenciales de Cloud / Cuentas de Servicio
+*service-account*.json
+*credentials*.json
+*firebase*.json
+*.pub
+
+# --- COMPILACIÓN, BUILDS Y SALIDAS ---
+dist/
+build/
+out/
+.next/
+!.next/cache/
+*.tsbuildinfo
+.turbo/
+
+# --- EXPO / REACT NATIVE (APPS MÓVILES) ---
+.expo/
+web-build/
+*.jks
+*.p8
+*.mobileprovision
+android/app/build/
+android/.gradle/
+ios/Pods/
+ios/build/
+ios/*.xcworkspace/xcuserdata/
+ios/*.xcodeproj/xcuserdata/
+
+# --- BASE DE DATOS Y PERSISTENCIA LOCAL ---
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+*.sqlite-wal
+*.sqlite-shm
+postgres_data/
+redis_data/
+evolution_instances/
+
+# --- LOGS Y PROCESOS ---
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+*.pid
+*.seed
+*.pid.lock
+
+# --- TESTING, COBERTURA Y REPORTES ---
+coverage/
+.nyc_output/
+playwright-report/
+test-results/
+blob-report/
+playwright/.cache/
+
+# --- ARCHIVOS TEMPORALES Y CACHÉ DEL SISTEMA ---
+.cache/
+tmp/
+temp/
+.temp/
+
+# --- SISTEMAS OPERATIVOS ---
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+
+# --- ENTORNOS DE DESARROLLO (IDES Y EDITORES) ---
+# VS Code (Permite compartir configuraciones recomendadas del equipo si se requiere)
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.code-workspace
+
+# JetBrains (WebStorm, IntelliJ, PhpStorm)
+.idea/
+*.iml
+*.iws
+
+# Otros editores
+*.sublime-project
+*.sublime-workspace
+.project
+.classpath
+.settings/

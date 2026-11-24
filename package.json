@@ -1,0 +1,26 @@
+{
+  "name": "administradorcotos",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Plataforma SaaS Multi-Tenant para Administración de Condominios y Cotos (B2B Mayoreo)",
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "workers/*"
+  ],
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "test:security": "turbo run test:security",
+    "db:generate": "turbo run db:generate",
+    "db:migrate": "turbo run db:migrate",
+    "db:push": "turbo run db:push"
+  },
+  "devDependencies": {
+    "turbo": "^2.4.0",
+    "typescript": "^5.7.0"
+  },
+  "packageManager": "npm@11.20.0"
+}
