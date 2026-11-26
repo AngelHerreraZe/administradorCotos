@@ -29,6 +29,7 @@ const SQLSTATE: Record<string, [ContentfulStatusCode, string, string]> = {
   '23503': [422, 'referencia_invalida', 'Hace referencia a algo que no existe o no es tuyo'],
   '23514': [422, 'regla_violada', 'Los datos no cumplen las reglas'],
   '22023': [422, 'parametro_invalido', 'Algún dato no es válido'],
+  '22P02': [422, 'parametro_invalido', 'Identificador o parámetro inválido'],
   P0002: [404, 'no_encontrado', 'No encontrado'],
   '40001': [409, 'reintentar', 'Conflicto de concurrencia, reintenta'],
   '40P01': [409, 'reintentar', 'Conflicto de concurrencia, reintenta'],
@@ -47,16 +48,19 @@ function causaPostgres(err: unknown): DriverCause | undefined {
   return meta?.driverAdapterError?.cause;
 }
 
+const PRISMA_CODE: Record<string, [ContentfulStatusCode, string, string]> = {
+  P2025: [404, 'no_encontrado', 'No encontrado'],
+  P2002: [409, 'duplicado', 'El registro ya existe'],
+  P2003: [422, 'referencia_invalida', 'Hace referencia a algo que no existe o no es tuyo'],
+};
+
 export function manejarError(log: Logger): ErrorHandler<AppEnv> {
   return (err, c) => {
     if (err instanceof AppError) {
-      return problema(
-        c,
-        err.status as ContentfulStatusCode,
-        err.code,
-        err.message,
-        err.detail ? { detail: err.detail } : {},
-      );
+      return problema(c, err.status as ContentfulStatusCode, err.code, err.message, {
+        ...(err.detail ? { detail: err.detail } : {}),
+        ...(err.errors ? { errors: err.errors } : {}),
+      });
     }
     if (err instanceof HTTPException) return problema(c, err.status, 'http', err.message);
 
@@ -74,6 +78,10 @@ export function manejarError(log: Logger): ErrorHandler<AppEnv> {
     }
     const mapeo = pg?.originalCode ? SQLSTATE[pg.originalCode] : undefined;
     if (mapeo) return problema(c, ...mapeo);
+
+    const prismaCode = (err as { code?: string }).code;
+    const prismaMapeo = prismaCode ? PRISMA_CODE[prismaCode] : undefined;
+    if (prismaMapeo) return problema(c, ...prismaMapeo);
 
     (c.get('log') ?? log).error({ err }, 'error no controlado');
     Sentry.captureException(err);

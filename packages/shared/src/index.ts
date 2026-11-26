@@ -21,13 +21,21 @@ export class AppError extends Error {
   readonly status: number;
   readonly code: string;
   readonly detail: string | undefined;
+  readonly errors: { path: string; message: string }[] | undefined;
 
-  constructor(status: number, code: string, title: string, detail?: string) {
+  constructor(
+    status: number,
+    code: string,
+    title: string,
+    detail?: string,
+    errors?: { path: string; message: string }[],
+  ) {
     super(title);
     this.name = 'AppError';
     this.status = status;
     this.code = code;
     this.detail = detail;
+    this.errors = errors;
   }
 }
 
@@ -50,6 +58,7 @@ export const SENTRY_SIN_PII = {
   stackFrameVariables: false,
 };
 
+export { type Cola, Colas, OPCIONES_JOB_CORREO, type PayloadCorreo } from './colas.ts';
 export const Uuid = z.uuid();
 export const Periodo = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'Usa el formato AAAA-MM');
 /** Dinero siempre como texto decimal con 2 decimales máximo: nunca float. */

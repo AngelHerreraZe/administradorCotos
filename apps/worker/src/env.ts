@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const COLAS = ['auditoria'] as const;
+export const COLAS = ['auditoria', 'correo'] as const;
 
 const Schema = z
   .object({
@@ -15,11 +15,17 @@ const Schema = z
       .transform((s) => s.split(',').map((q) => q.trim()))
       .pipe(z.array(z.enum(COLAS)).min(1)),
     AUDIT_LOG_HMAC_SECRET: z.string().min(32).optional(),
+    RESEND_API_KEY: z.string().min(1).optional(),
+    EMAIL_FROM: z.string().min(3).optional(),
     SENTRY_DSN: z.url().optional(),
   })
   .refine((e) => !e.WORKER_QUEUES.includes('auditoria') || e.AUDIT_LOG_HMAC_SECRET, {
     message: 'La cola auditoria requiere AUDIT_LOG_HMAC_SECRET',
     path: ['AUDIT_LOG_HMAC_SECRET'],
+  })
+  .refine((e) => !e.WORKER_QUEUES.includes('correo') || (e.RESEND_API_KEY && e.EMAIL_FROM), {
+    message: 'La cola correo requiere RESEND_API_KEY y EMAIL_FROM',
+    path: ['RESEND_API_KEY'],
   });
 
 export type Env = z.infer<typeof Schema>;

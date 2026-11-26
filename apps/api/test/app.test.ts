@@ -1,4 +1,5 @@
 import type { PrismaClient } from '@admcotos/db';
+import { createLocalJWKSet } from 'jose';
 import { pino } from 'pino';
 import { describe, expect, test } from 'vitest';
 import { createApp } from '../src/app.ts';
@@ -8,13 +9,18 @@ const env = loadEnv({
   NODE_ENV: 'test',
   DATABASE_URL: 'postgresql://app_service:x@localhost:5432/test',
   DB_CTX_SECRET: 'ab'.repeat(32),
+  SUPABASE_URL: 'https://test.supabase.co',
+  REDIS_URL: 'redis://localhost:6379',
   CORS_ORIGINS: 'https://app.admcotos.mx',
 });
 const log = pino({ level: 'silent' });
+const jwks = createLocalJWKSet({ keys: [] });
+const limitador = { async consumir() {} };
+const encolarCorreo = async () => {};
 
 function appCon(queryRaw: () => Promise<unknown>, overrides: Partial<typeof env> = {}) {
   const prisma = { $queryRaw: queryRaw } as unknown as PrismaClient;
-  return createApp({ env: { ...env, ...overrides }, prisma, log });
+  return createApp({ env: { ...env, ...overrides }, prisma, log, jwks, limitador, encolarCorreo });
 }
 const app = appCon(async () => [{ ok: 1 }]);
 
@@ -108,9 +114,16 @@ describe('documentación OpenAPI', () => {
     expect((await app.request('/openapi.json')).status).toBe(404);
   });
 
-  test('encendida con API_DOCS', async () => {
+  test('encendida con API_DOCS incluye rutas de Fase 1', async () => {
     const res = await appCon(async () => [], { API_DOCS: true }).request('/openapi.json');
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { paths: object }).paths).toHaveProperty('/health/ready');
+    const doc = (await res.json()) as { paths: Record<string, unknown> };
+    expect(doc.paths).toHaveProperty('/health/ready');
+    expect(doc.paths).toHaveProperty('/api/v1/me');
+    expect(doc.paths).toHaveProperty('/api/v1/invitaciones/aceptar');
+    expect(doc.paths).toHaveProperty('/api/v1/orgs/{orgId}');
+    expect(doc.paths).toHaveProperty('/api/v1/cotos/{cotoId}/unidades');
+    expect(doc.paths).toHaveProperty('/api/v1/cotos/{cotoId}/unidades/importar');
+    expect(doc.paths).toHaveProperty('/api/v1/cotos/{cotoId}/miembros');
   });
 });

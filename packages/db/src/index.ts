@@ -1,4 +1,4 @@
-import { assertUuid, calculateAuditHash, signDbContext } from '@admcotos/security';
+import { type AalLevel, assertUuid, calculateAuditHash, signDbContext } from '@admcotos/security';
 import type { Prisma, PrismaClient } from './generated/prisma/client.ts';
 
 export { createPrisma, type DbOptions } from './client.ts';
@@ -6,6 +6,7 @@ export type { Prisma, PrismaClient } from './generated/prisma/client.ts';
 
 export interface DbContext {
   userId: string; // de un JWT ya verificado; NUNCA de headers o body
+  aal?: AalLevel; // nivel de autenticación del JWT ('aal1' | 'aal2')
   cotoId?: string | null; // acota la vista a un coto (opcional, solo restringe)
   requestId?: string; // viaja a la metadata de auditoría
 }
@@ -32,7 +33,7 @@ export function withTenant<T>(
   fn: (tx: Prisma.TransactionClient) => Promise<T>,
   options?: { timeout?: number },
 ): Promise<T> {
-  const firma = signDbContext(ctx.userId, contextSecret());
+  const firma = signDbContext(ctx.userId, contextSecret(), { aal: ctx.aal ?? 'aal1' });
   const coto = ctx.cotoId ? assertUuid(ctx.cotoId, 'cotoId') : '';
   const req = (ctx.requestId ?? '').slice(0, 100);
   return prisma.$transaction(async (tx) => {

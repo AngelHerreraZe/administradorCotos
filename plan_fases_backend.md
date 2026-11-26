@@ -7,7 +7,7 @@
 | Fase | Alcance | Estado |
 | :--- | :--- | :--- |
 | 0 | Fundaciones: monorepo, toolchain, BD con RLS, API y worker base, CI | ✅ Hecha |
-| 1 | Identidad, MFA, tenancy y núcleo organizacional | ⏳ Siguiente |
+| 1 | Identidad, MFA, tenancy y núcleo organizacional | 🔄 En auditoría |
 | 2 | Finanzas: cargos, pagos manuales, egresos, reportes | — |
 | 3 | Pagos en línea, domiciliación, CFDI y cobro a despachos | — |
 | 4 | Comunicados, notificaciones, WhatsApp, IA, tickets y votaciones | — |
@@ -608,10 +608,10 @@ Agregar el job `e2e` al CI (mismo patrón que `migraciones-postgres`).
 
 ### Terminado cuando
 
-- [ ] Migración aplicada en Postgres 17 real y pruebas SQL nuevas en verde.
-- [ ] Todos los endpoints de 1.3 con sus pruebas (feliz, 422, 403 por coto y por rol).
-- [ ] E2E en CI en verde.
-- [ ] OpenAPI publicado en desarrollo con todos los esquemas.
+- [ ] Migración aplicada en Postgres 17 real (pendiente de CI `migraciones-postgres`; pruebas SQL en PGlite en verde).
+- [x] Todos los endpoints de 1.3 con sus pruebas (feliz, 422, 403 por coto y por rol).
+- [ ] E2E en CI en verde (suite escrita en `apps/api/test/e2e/`; pendiente de correr contra Postgres 17 en CI / Docker).
+- [x] OpenAPI publicado en desarrollo con todos los esquemas.
 
 ---
 

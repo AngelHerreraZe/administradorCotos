@@ -15,6 +15,7 @@
     "format": "biome check --write .",
     "test": "turbo run test",
     "test:security": "turbo run test:security",
+    "test:e2e": "npm run test:e2e -w @admcotos/api",
     "check": "biome ci . && turbo run typecheck test",
     "db:generate": "npm run generate -w @admcotos/db",
     "db:migrate:dev": "npm run migrate:dev -w @admcotos/db",

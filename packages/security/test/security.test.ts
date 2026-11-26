@@ -43,12 +43,17 @@ test('auditoría: hash estable aunque JSONB reordene llaves; alteración detecta
   assert.ok(!verifyAuditLink(reordenado, '0'.repeat(64), 'abc', secret)); // hash basura: false, no excepción
 });
 
-test('contexto RLS: formato que valida app.uid() y UUID estricto', () => {
+test('contexto RLS v2: formato con aal que valida app.uid()/app.aal() y UUID estricto', () => {
   const secret = crypto.randomBytes(32);
   const ctx = signDbContext('AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA', secret);
-  assert.match(ctx, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.[0-9]{10}\.[0-9a-f]{64}$/);
-  const [id, exp, mac] = ctx.split('.');
-  assert.equal(mac, crypto.createHmac('sha256', secret).update(`${id}.${exp}`).digest('hex'));
+  assert.match(ctx, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.aal[12]\.[0-9]{10}\.[0-9a-f]{64}$/);
+  const [id, aal, exp, mac] = ctx.split('.');
+  assert.equal(aal, 'aal1');
+  assert.equal(mac, crypto.createHmac('sha256', secret).update(`${id}.${aal}.${exp}`).digest('hex'));
+
+  const ctxAal2 = signDbContext(ORG_A, secret, { aal: 'aal2', ttlSeconds: 60 });
+  assert.equal(ctxAal2.split('.')[1], 'aal2');
+
   assert.throws(() => signDbContext("x' OR 1=1 --", secret));
   assert.throws(() => signDbContext(ORG_A, Buffer.alloc(8)));
 });

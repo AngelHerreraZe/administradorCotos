@@ -9,6 +9,13 @@ const Schema = z.object({
   DB_POOL_MAX: z.coerce.number().int().min(1).max(50).default(10),
   /** Firma de app.ctx (hex ≥ 32 bytes). Lo consume @admcotos/db en withTenant. */
   DB_CTX_SECRET: z.string().regex(/^(?:[0-9a-f]{2}){32,}$/i, 'hex de al menos 32 bytes'),
+  /** URL base de Supabase para JWKS e issuer (ej. https://proyecto.supabase.co). */
+  SUPABASE_URL: z.url({ protocol: /^https?$/ }),
+  AUTH_AUDIENCE: z.string().min(1).default('authenticated'),
+  /** Redis para rate limit y cola de correos BullMQ. */
+  REDIS_URL: z.url({ protocol: /^rediss?$/ }),
+  /** URL base del portal web para enlaces en correos de invitación. */
+  APP_PUBLIC_URL: z.url({ protocol: /^https?$/ }).default('http://localhost:3000'),
   /** Orígenes exactos permitidos por CORS, separados por coma. */
   CORS_ORIGINS: z
     .string()

@@ -103,16 +103,18 @@ model Organizacion {
   montoRecargaMin  Decimal      @default(2000.00) @map("monto_recarga_min") @db.Decimal(12, 2)
   estadoSuscripcion String      @default("activo") @map("estado_suscripcion") @db.VarChar(20) // activo, solo_lectura, suspendido
 
-  // LFPDPPP
+  // LFPDPPP y Seguridad
   avisoPrivacidadUrl String?    @map("aviso_privacidad_url")
   avisoVersion       Int        @default(1) @map("aviso_version")
+  exigirMfa          Boolean    @default(true) @map("exigir_mfa")
 
   // Relaciones
-  cotos            Coto[]
-  miembrosOrg      OrgMiembro[]
-  paquetesTimbres  PaqueteTimbres[]
-  apiKeys          PartnerApiKey[]
-  soporteAccesos   SoporteAcceso[]
+  cotos               Coto[]
+  miembrosOrg         OrgMiembro[]
+  paquetesTimbres     PaqueteTimbres[]
+  apiKeys             PartnerApiKey[]
+  soporteAccesos      SoporteAcceso[]
+  invitacionesMiembro InvitacionMiembro[]
 
   activo           Boolean      @default(true)
   createdAt        DateTime     @default(now()) @map("created_at") @db.Timestamptz
@@ -223,6 +225,7 @@ model Coto {
   dispositivosIot       DispositivoIot[]
   autopayConfigs        AutopayConfig[]
   autopayIntentos       AutopayIntento[]
+  invitacionesMiembro   InvitacionMiembro[]
 
   activo                Boolean       @default(true)
   createdAt             DateTime      @default(now()) @map("created_at") @db.Timestamptz
@@ -292,8 +295,9 @@ model Unidad {
   invitaciones   InvitacionAcceso[]
   reservaciones  Reservacion[]
   tickets        Ticket[]
-  votos          Voto[]
-  registrosAcceso RegistroAcceso[]
+  votos               Voto[]
+  registrosAcceso     RegistroAcceso[]
+  invitacionesMiembro InvitacionMiembro[]
 
   @@unique([cotoId, numero])
   @@index([cotoId, activo, ocupada])
@@ -324,6 +328,7 @@ model Usuario {
   registrosComoGuardia   RegistroAcceso[]
   staffPlataforma        StaffPlataforma?
   soporteOtorgado        SoporteAcceso[]
+  invitacionesEnviadas   InvitacionMiembro[]
 
   activo                 Boolean          @default(true)
   createdAt              DateTime         @default(now()) @map("created_at") @db.Timestamptz
@@ -353,6 +358,32 @@ model MiembroCoto {
   @@index([cotoId, unidadId, rol])
   @@index([usuarioId, activo]) // usado por las funciones de RLS en cada consulta
   @@map("miembros_coto")
+}
+
+/// Invitaciones de ingreso a un despacho o coto. La membresía nace solo
+/// cuando la persona prueba que controla el correo vía app.aceptar_invitacion().
+model InvitacionMiembro {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId      String    @map("org_id") @db.Uuid
+  cotoId     String?   @map("coto_id") @db.Uuid
+  unidadId   String?   @map("unidad_id") @db.Uuid
+  email      String    @db.Citext
+  rol        String    @db.VarChar(30)
+  tokenHash  String    @unique @map("token_hash") @db.Char(64)
+  expiraEn   DateTime  @map("expira_en") @db.Timestamptz
+  aceptadaEn DateTime? @map("aceptada_en") @db.Timestamptz
+  revocadaEn DateTime? @map("revocada_en") @db.Timestamptz
+  creadaPor  String    @map("creada_por") @db.Uuid
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  organizacion Organizacion @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  coto         Coto?        @relation(fields: [cotoId], references: [id], onDelete: Cascade)
+  unidad       Unidad?      @relation(fields: [unidadId], references: [id], onDelete: SetNull)
+  creador      Usuario      @relation(fields: [creadaPor], references: [id])
+
+  @@index([cotoId, createdAt(sort: Desc)])
+  @@index([orgId, email])
+  @@map("invitaciones_miembro")
 }
 
 // ──────────────────────────────────────────────────────────────────────

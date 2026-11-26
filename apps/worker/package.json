@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@admcotos/db": "*",
+    "@admcotos/notifications": "*",
     "@admcotos/shared": "*",
     "@sentry/node": "11.19.0",
     "bullmq": "6.7.10",

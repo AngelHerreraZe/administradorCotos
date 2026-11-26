@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
-import { signDbContext } from '@admcotos/security';
+import { type AalLevel, signDbContext } from '@admcotos/security';
 import { PGlite } from '@electric-sql/pglite';
 import { btree_gist } from '@electric-sql/pglite/contrib/btree_gist';
 import { citext } from '@electric-sql/pglite/contrib/citext';
@@ -36,18 +36,18 @@ function como(
   user: string | null,
   sql: string,
   params: unknown[] = [],
-  { coto = '', ctx }: { coto?: string; ctx?: string } = {},
+  { coto = '', ctx, aal = 'aal2' }: { coto?: string; ctx?: string; aal?: AalLevel } = {},
 ) {
   return db.transaction(async (tx) => {
     await tx.query('SET LOCAL ROLE app_service');
     await tx.query(`SELECT set_config('app.ctx', $1, true), set_config('app.coto_id', $2, true)`, [
-      ctx ?? (user ? signDbContext(user, SECRET) : ''),
+      ctx ?? (user ? signDbContext(user, SECRET, { aal }) : ''),
       coto,
     ]);
     return (await tx.query<Fila>(sql, params)).rows;
   });
 }
-const contar = async (user: string | null, tabla: string, opts?: { coto?: string; ctx?: string }) =>
+const contar = async (user: string | null, tabla: string, opts?: { coto?: string; ctx?: string; aal?: AalLevel }) =>
   (await como(user, `SELECT count(*)::int AS n FROM ${tabla}`, [], opts))[0].n;
 
 // ─── Escenario: despacho A (cotos A1, A2) y despacho B (coto B1) ───
@@ -126,7 +126,7 @@ test('sin contexto, firma falsa, expirada o con otro secreto: cero filas', async
   assert.equal(await contar(null, 'cargos'), 0);
   const valida = signDbContext(u.adminA1, SECRET);
   assert.equal(await contar(null, 'cargos', { ctx: valida.slice(0, -1) + (valida.endsWith('0') ? '1' : '0') }), 0);
-  assert.equal(await contar(null, 'cargos', { ctx: signDbContext(u.adminA1, SECRET, -5) }), 0);
+  assert.equal(await contar(null, 'cargos', { ctx: signDbContext(u.adminA1, SECRET, { ttlSeconds: -5 }) }), 0);
   assert.equal(await contar(null, 'cargos', { ctx: signDbContext(u.adminA1, crypto.randomBytes(32)) }), 0);
   assert.equal(await contar(null, 'cargos', { ctx: `${u.adminA1}' OR 1=1 --` }), 0);
 });
@@ -380,4 +380,170 @@ test('webhooks: la API registra eventos (idempotente) pero no lee payloads', asy
   await como(null, ins);
   assert.equal((await db.query<Fila>(`SELECT count(*)::int AS n FROM webhook_events`)).rows[0].n, 1);
   await assert.rejects(como(null, `SELECT * FROM webhook_events`), /permission denied/);
+});
+
+test('MFA (aal2) y contexto v2: firma v1 rechazada; staff sin aal2 lee pero no escribe; residente sin MFA sí paga', async () => {
+  // Firma v1 (sin segmento aal) debe ser rechazada
+  const exp = Math.floor(Date.now() / 1000) + 300;
+  const v1Mac = crypto.createHmac('sha256', SECRET).update(`${u.adminA1}.${exp}`).digest('hex');
+  assert.equal(await contar(null, 'cargos', { ctx: `${u.adminA1}.${exp}.${v1Mac}` }), 0);
+
+  // Staff sin aal2 sí lee, pero no puede escribir en coto ni organización
+  assert.equal(await contar(u.adminA1, 'cargos', { aal: 'aal1' }), 4);
+  assert.equal(await contar(u.ownerA, 'cotos', { aal: 'aal1' }), 2);
+  await assert.rejects(
+    como(u.adminA1, `INSERT INTO sectores (coto_id, nombre) VALUES ($1, 'Privada Sin MFA')`, [A1], { aal: 'aal1' }),
+    /row-level security/,
+  );
+  assert.equal(
+    (
+      await como(u.ownerA, `UPDATE organizaciones SET nombre = 'X' WHERE id = $1 RETURNING id`, [ORG_A], {
+        aal: 'aal1',
+      })
+    ).length,
+    0,
+  );
+  assert.equal(
+    (await db.query<Fila>(`SELECT nombre FROM organizaciones WHERE id = $1`, [ORG_A])).rows[0].nombre,
+    'Despacho Alfa',
+  );
+  await assert.rejects(
+    como(u.ownerA, `INSERT INTO cotos (org_id, nombre, slug) VALUES ($1, 'SinMFA', 'sin-mfa')`, [ORG_A], {
+      aal: 'aal1',
+    }),
+    /row-level security/,
+  );
+
+  // Si la organización desactiva exigir_mfa, staff con aal1 sí escribe
+  await db.query(`UPDATE organizaciones SET exigir_mfa = false WHERE id = $1`, [ORG_A]);
+  await como(u.adminA1, `INSERT INTO sectores (coto_id, nombre) VALUES ($1, 'Sin MFA Permitido')`, [A1], {
+    aal: 'aal1',
+  });
+  await db.query(`UPDATE organizaciones SET exigir_mfa = true WHERE id = $1`, [ORG_A]);
+
+  // Residente sin MFA (aal1) sí puede leer su unidad y registrar un comprobante de pago
+  assert.equal(await contar(u.propA1, 'cargos', { aal: 'aal1' }), 2);
+  assert.equal(
+    (
+      await como(
+        u.propA1,
+        `INSERT INTO pagos (coto_id, unidad_id, monto, metodo, estado) VALUES ($1, $2, 250, 'transferencia_manual', 'en_revision') RETURNING id`,
+        [A1, UA1],
+        { aal: 'aal1' },
+      )
+    ).length,
+    1,
+  );
+});
+
+test('identidad e invitaciones: usuario_por_auth, mis_membresias, aceptación, expirada, revocada e idempotente', async () => {
+  const authAdmin = (await db.query<Fila>(`SELECT auth_id FROM usuarios WHERE id = $1`, [u.adminA1])).rows[0].auth_id;
+  assert.equal((await como(null, `SELECT app.usuario_por_auth($1) AS id`, [authAdmin]))[0].id, u.adminA1);
+  assert.equal((await como(null, `SELECT app.usuario_por_auth($1) AS id`, [id()]))[0].id, null);
+
+  const memProp = await como(u.propA1, `SELECT * FROM app.mis_membresias()`, [], { aal: 'aal1' });
+  assert.equal(memProp.length, 1);
+  assert.deepEqual(
+    { coto_id: memProp[0].coto_id, rol: memProp[0].rol, unidad: memProp[0].unidad },
+    { coto_id: A1, rol: 'residente_propietario', unidad: '101' },
+  );
+
+  // coto_admin no puede invitar org_owner/org_admin ni a otro coto/org
+  await assert.rejects(
+    como(
+      u.adminA1,
+      `INSERT INTO invitaciones_miembro (org_id, coto_id, email, rol, token_hash, expira_en, creada_por)
+       VALUES ($1, NULL, 'x@alfa.mx', 'org_owner', $2, now() + interval '1 day', $3)`,
+      [ORG_A, sha('org-owner-por-coto-admin'), u.adminA1],
+    ),
+    /row-level security/,
+  );
+  await assert.rejects(
+    como(
+      u.adminA1,
+      `INSERT INTO invitaciones_miembro (org_id, coto_id, email, rol, token_hash, expira_en, creada_por)
+       VALUES ($1, $2, 'x@alfa.mx', 'guardia', $3, now() + interval '1 day', $4)`,
+      [ORG_B, A1, sha('cross-org'), u.adminA1],
+    ),
+    /Referencia inválida/,
+  );
+
+  // Invitación válida creada por adminA1
+  const tokOk = 'token-inv-valido-1';
+  await como(
+    u.adminA1,
+    `INSERT INTO invitaciones_miembro (org_id, coto_id, unidad_id, email, rol, token_hash, expira_en, creada_por)
+     VALUES ($1, $2, $3, 'VecinoNuevo@alfa.mx', 'residente_propietario', $4, now() + interval '2 days', $5)`,
+    [ORG_A, A1, UA1B, sha(tokOk), u.adminA1],
+  );
+  // No puede forjar aceptada_en directamente
+  await assert.rejects(
+    como(u.adminA1, `UPDATE invitaciones_miembro SET aceptada_en = now() WHERE token_hash = $1`, [sha(tokOk)]),
+    /permission denied/,
+  );
+
+  const authNuevo = id();
+  // Correo distinto -> UA403
+  await assert.rejects(
+    como(null, `SELECT app.aceptar_invitacion($1, $2, 'otro@alfa.mx', 'Ana', 'García')`, [sha(tokOk), authNuevo]),
+    /no coincide/,
+  );
+
+  // Aceptar con correo coincidente (case-insensitive via citext) -> crea usuario y membresía
+  const uid1 = (
+    await como(null, `SELECT app.aceptar_invitacion($1, $2, 'vecinonuevo@alfa.mx', 'Ana', 'García') AS id`, [
+      sha(tokOk),
+      authNuevo,
+    ])
+  )[0].id;
+  // Idempotente al repetir con el mismo auth_id
+  const uid2 = (
+    await como(null, `SELECT app.aceptar_invitacion($1, $2, 'vecinonuevo@alfa.mx', 'Ana', 'García') AS id`, [
+      sha(tokOk),
+      authNuevo,
+    ])
+  )[0].id;
+  assert.equal(uid1, uid2);
+
+  // Invitación revocada -> rechazada
+  const tokRev = 'token-inv-revocado';
+  const [{ id: invRevId }] = await como(
+    u.adminA1,
+    `INSERT INTO invitaciones_miembro (org_id, coto_id, email, rol, token_hash, expira_en, creada_por)
+     VALUES ($1, $2, 'guardia@alfa.mx', 'guardia', $3, now() + interval '2 days', $4) RETURNING id`,
+    [ORG_A, A1, sha(tokRev), u.adminA1],
+  );
+  await como(u.adminA1, `UPDATE invitaciones_miembro SET revocada_en = now() WHERE id = $1`, [invRevId]);
+  await assert.rejects(
+    como(null, `SELECT app.aceptar_invitacion($1, $2, 'guardia@alfa.mx', 'Luis', 'Pérez')`, [sha(tokRev), id()]),
+    /no existe o ya venció/,
+  );
+
+  // Invitación vencida -> rechazada
+  const tokExp = 'token-inv-expirado';
+  await db.query(
+    `INSERT INTO invitaciones_miembro (org_id, coto_id, email, rol, token_hash, expira_en, creada_por, created_at)
+     VALUES ($1, $2, 'exp@alfa.mx', 'guardia', $3, now() - interval '1 hour', $4, now() - interval '2 days')`,
+    [ORG_A, A1, sha(tokExp), u.adminA1],
+  );
+  await assert.rejects(
+    como(null, `SELECT app.aceptar_invitacion($1, $2, 'exp@alfa.mx', 'Luis', 'Pérez')`, [sha(tokExp), id()]),
+    /no existe o ya venció/,
+  );
+
+  // Mismo correo con otro auth_id en una segunda invitación -> UA409
+  const tokOtroAuth = 'token-inv-otro-auth';
+  await como(
+    u.adminA1,
+    `INSERT INTO invitaciones_miembro (org_id, coto_id, email, rol, token_hash, expira_en, creada_por)
+     VALUES ($1, $2, 'vecinonuevo@alfa.mx', 'coto_comite', $3, now() + interval '2 days', $4)`,
+    [ORG_A, A1, sha(tokOtroAuth), u.adminA1],
+  );
+  await assert.rejects(
+    como(null, `SELECT app.aceptar_invitacion($1, $2, 'vecinonuevo@alfa.mx', 'Ana', 'García')`, [
+      sha(tokOtroAuth),
+      id(),
+    ]),
+    /vinculado a otra cuenta/,
+  );
 });

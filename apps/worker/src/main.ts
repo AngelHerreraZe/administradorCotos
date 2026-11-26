@@ -3,6 +3,7 @@ import { Redis } from 'ioredis';
 import { pino } from 'pino';
 import { loadEnv } from './env.ts';
 import { iniciarAuditoria } from './processors/auditoria.ts';
+import { iniciarCorreo } from './processors/correo.ts';
 
 const env = loadEnv();
 const log = pino({ level: env.LOG_LEVEL, base: { service: 'worker', colas: env.WORKER_QUEUES } });
@@ -18,6 +19,15 @@ const cerrables: { close(): Promise<void> }[] = [];
 if (env.WORKER_QUEUES.includes('auditoria') && env.AUDIT_LOG_HMAC_SECRET) {
   const { queue, worker } = await iniciarAuditoria({ prisma, connection, log, hmacSecret: env.AUDIT_LOG_HMAC_SECRET });
   cerrables.push(worker, queue);
+}
+if (env.WORKER_QUEUES.includes('correo') && env.RESEND_API_KEY && env.EMAIL_FROM) {
+  const { worker } = iniciarCorreo({
+    connection,
+    log,
+    apiKey: env.RESEND_API_KEY,
+    from: env.EMAIL_FROM,
+  });
+  cerrables.push(worker);
 }
 log.info('worker listo');
 
