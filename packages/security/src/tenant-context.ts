@@ -1,30 +1,27 @@
+import crypto from 'node:crypto';
+
 /**
- * Inyección de Contexto Multi-Tenant para PostgreSQL RLS
- * IMPORTANTE: Siempre usa is_local = true para que el contexto quede
- * estrictamente ligado a la transacción actual y no contamine otras
- * conexiones de PgBouncer.
+ * Contexto de identidad para PostgreSQL RLS.
+ *
+ * La BD no confía en roles ni en coto enviados por la app: solo en el
+ * usuario, y solo si viene firmado. `app.uid()` valida esta firma con el
+ * mismo secreto (tabla app_private.ctx_secret). Una inyección SQL no puede
+ * hacerse pasar por otro usuario porque no conoce el secreto.
+ *
+ * Formato: "<usuario_uuid>.<expira_epoch>.<hmac_sha256_hex>"
  */
-export interface TenantSessionContext {
-  orgId: string;
-  cotoId: string;
-  userId: string;
-  userRole: string;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+export function assertUuid(valor: string, campo: string): string {
+  const v = valor.toLowerCase();
+  if (!UUID_RE.test(v)) throw new Error(`${campo} no es un UUID válido`);
+  return v;
 }
 
-export function buildTenantContextSql(ctx: TenantSessionContext): string {
-  // Sanitización de UUIDs y strings para prevenir SQLi antes de set_config
-  const sanitize = (val: string) => val.replace(/[^a-zA-Z0-9_-]/g, '');
-
-  const safeOrgId = sanitize(ctx.orgId);
-  const safeCotoId = sanitize(ctx.cotoId);
-  const safeUserId = sanitize(ctx.userId);
-  const safeRole = sanitize(ctx.userRole);
-
-  return `
-    SELECT 
-      set_config('app.current_org_id', '${safeOrgId}', true),
-      set_config('app.current_coto_id', '${safeCotoId}', true),
-      set_config('app.current_user_id', '${safeUserId}', true),
-      set_config('app.current_user_role', '${safeRole}', true);
-  `;
+export function signDbContext(userId: string, secret: Buffer, ttlSeconds = 300): string {
+  if (secret.length < 32) throw new Error('El secreto de contexto debe tener al menos 32 bytes');
+  const id = assertUuid(userId, 'userId');
+  const exp = Math.floor(Date.now() / 1000) + ttlSeconds;
+  const mac = crypto.createHmac('sha256', secret).update(`${id}.${exp}`).digest('hex');
+  return `${id}.${exp}.${mac}`;
 }

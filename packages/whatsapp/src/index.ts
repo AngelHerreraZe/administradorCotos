@@ -1,3 +1,3 @@
-export * from './evolution-client.js';
-export * from './anti-ban-policy.js';
-export * from './webhook-handler.js';
+export * from './anti-ban-policy.ts';
+export * from './evolution-client.ts';
+export * from './webhook-handler.ts';

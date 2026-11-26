@@ -1,0 +1,10 @@
+**/node_modules
+**/src/generated
+**/.turbo
+**/coverage
+.git
+.github
+.env
+.env.*
+design
+*.md

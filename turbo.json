@@ -1,32 +1,26 @@
 {
-  "$schema": "https://turbo.build/schema.json",
+  "$schema": "https://turborepo.com/schema.json",
+  "globalDependencies": ["tsconfig.base.json", ".node-version"],
   "tasks": {
-    "build": {
-      "dependsOn": ["^build"],
-      "outputs": [".next/**", "!.next/cache/**", "dist/**"]
+    "generate": {
+      "inputs": ["prisma/schema.prisma", "prisma.config.ts"],
+      "outputs": ["src/generated/**"]
     },
-    "dev": {
-      "cache": false,
-      "persistent": true
-    },
-    "lint": {
-      "dependsOn": ["^lint"]
+    "typecheck": {
+      "dependsOn": ["generate", "^generate"]
     },
     "test": {
-      "dependsOn": ["^build"],
+      "dependsOn": ["generate", "^generate"],
       "outputs": ["coverage/**"]
     },
     "test:security": {
+      "dependsOn": ["generate", "^generate"],
       "cache": false
     },
-    "db:generate": {
-      "cache": false
-    },
-    "db:migrate": {
-      "cache": false
-    },
-    "db:push": {
-      "cache": false
+    "dev": {
+      "dependsOn": ["generate", "^generate"],
+      "cache": false,
+      "persistent": true
     }
   }
 }
