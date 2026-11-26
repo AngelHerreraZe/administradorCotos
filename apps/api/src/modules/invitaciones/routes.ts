@@ -1,7 +1,6 @@
 import { Paginacion } from '@admcotos/shared';
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi';
-import { respuestasError } from '../../lib/openapi.ts';
-import { extraerIdempotencyKey } from '../../lib/prisma.ts';
+import { IdempotencyHeader, respuestasError } from '../../lib/openapi.ts';
 import { conTenant, conTenantPreRegistro } from '../../lib/tenant.ts';
 import { limiteTasaEstricto } from '../../middleware/rate-limit.ts';
 import type { AppEnv, Deps } from '../../types.ts';
@@ -14,10 +13,6 @@ import {
   InvitacionParam,
 } from './schemas.ts';
 import * as servicio from './service.ts';
-
-const IdempotencyHeader = z.object({
-  'idempotency-key': z.uuid().optional(),
-});
 
 const aceptarRoute = createRoute({
   method: 'post',
@@ -111,16 +106,24 @@ export function invitacionesRoutes(deps: Pick<Deps, 'prisma' | 'env' | 'limitado
     .openapi(crearRoute, async (c) => {
       const { cotoId } = c.req.valid('param');
       const { usuarioId } = c.get('auth');
-      const idempotencyKey = extraerIdempotencyKey(c.req.header('Idempotency-Key'));
+      const idempotencyKey = c.req.valid('header')['idempotency-key']?.toLowerCase();
       const datos = c.req.valid('json');
-      const res = await conTenant(c, deps, cotoId, (tx) =>
-        servicio.crear(tx, { cotoId, usuarioId, datos, appPublicUrl: deps.env.APP_PUBLIC_URL, idempotencyKey }),
-      );
+      const res = await conTenant(c, deps, cotoId, async (tx) => {
+        const resultado = await servicio.crear(tx, {
+          cotoId,
+          usuarioId,
+          datos,
+          appPublicUrl: deps.env.APP_PUBLIC_URL,
+          idempotencyKey,
+        });
+        // Encolamos antes del commit: si Redis falla (503), la transacción se revierte sin dejar clave_idempotencia huérfana.
+        if (resultado.creado && resultado.correo) {
+          await deps.encolarCorreo(resultado.correo, { jobId: resultado.jobId });
+        }
+        return resultado;
+      });
       if (!res.creado) {
         return c.json(res.dto, 200);
-      }
-      if (res.correo) {
-        await deps.encolarCorreo(res.correo, { jobId: res.jobId });
       }
       return c.json(res.dto, 201, { Location: `/api/v1/invitaciones/${res.dto.id}` });
     })

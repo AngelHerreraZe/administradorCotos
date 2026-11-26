@@ -255,6 +255,13 @@ describe('módulo de organizaciones', () => {
     });
     expect(exceso.status).toBe(422);
 
+    const badIdem = await app.request(`/api/v1/orgs/${ORG_ID}/soporte`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', 'Idempotency-Key': 'no-uuid' },
+      body: JSON.stringify({ ticketRef: 'T-4092', duracionHoras: 24 }),
+    });
+    expect(badIdem.status).toBe(422);
+
     const ok1 = await app.request(`/api/v1/orgs/${ORG_ID}/soporte`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', 'Idempotency-Key': IDEM_KEY },

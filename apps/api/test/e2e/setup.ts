@@ -35,6 +35,7 @@ export interface EscenarioE2E {
     propB1: { id: string; authId: string; email: string };
   };
   adminPrisma: PrismaClient;
+  fallarSiguienteCorreo: (err: Error | null) => void;
   firmarJwt: (
     authId: string,
     opts?: { aal?: 'aal1' | 'aal2'; email?: string; emailVerified?: boolean },
@@ -166,6 +167,7 @@ export async function iniciarEscenarioE2E(): Promise<EscenarioE2E> {
   });
 
   const correos: PayloadCorreo[] = [];
+  let errorSiguienteCorreo: Error | null = null;
   const app = createApp({
     env,
     prisma: appPrisma,
@@ -173,6 +175,11 @@ export async function iniciarEscenarioE2E(): Promise<EscenarioE2E> {
     jwks,
     limitador: { async consumir() {} },
     encolarCorreo: async (payload) => {
+      if (errorSiguienteCorreo) {
+        const err = errorSiguienteCorreo;
+        errorSiguienteCorreo = null;
+        throw err;
+      }
       correos.push(payload);
     },
   });
@@ -191,6 +198,9 @@ export async function iniciarEscenarioE2E(): Promise<EscenarioE2E> {
     sectorB1,
     usuarios: { ownerA, adminA1, comiteA1, propA1, propB1 },
     adminPrisma,
+    fallarSiguienteCorreo: (err) => {
+      errorSiguienteCorreo = err;
+    },
     firmarJwt: (authId, opts = {}) =>
       new SignJWT({
         aal: opts.aal ?? 'aal1',

@@ -1,6 +1,5 @@
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi';
-import { respuestasError } from '../../lib/openapi.ts';
-import { extraerIdempotencyKey } from '../../lib/prisma.ts';
+import { IdempotencyHeader, respuestasError } from '../../lib/openapi.ts';
 import { conTenant } from '../../lib/tenant.ts';
 import type { AppEnv, Deps } from '../../types.ts';
 import { Coto } from '../cotos/schemas.ts';
@@ -14,10 +13,6 @@ import {
   SoporteAccesoDto,
 } from './schemas.ts';
 import * as servicio from './service.ts';
-
-const IdempotencyHeader = z.object({
-  'idempotency-key': z.uuid().optional(),
-});
 
 const obtener = createRoute({
   method: 'get',
@@ -130,7 +125,7 @@ export function orgsRoutes(deps: Pick<Deps, 'prisma'>) {
     .openapi(abrirSoporte, async (c) => {
       const { orgId } = c.req.valid('param');
       const { usuarioId } = c.get('auth');
-      const idempotencyKey = extraerIdempotencyKey(c.req.header('Idempotency-Key'));
+      const idempotencyKey = c.req.valid('header')['idempotency-key']?.toLowerCase();
       const datos = c.req.valid('json');
       const res = await conTenant(c, deps, undefined, (tx) =>
         servicio.abrirSoporte(tx, orgId, usuarioId, datos, idempotencyKey),

@@ -4,6 +4,21 @@ import type { z } from '@hono/zod-openapi';
 import { actualizarConRls } from '../../lib/prisma.ts';
 import type { ActualizarMiembro, MiembroCotoDto } from './schemas.ts';
 
+interface FilaDirectorio {
+  id: string;
+  coto_id: string;
+  unidad_id: string | null;
+  unidad_numero: string | null;
+  usuario_id: string;
+  nombre: string;
+  apellido_paterno: string;
+  apellido_materno: string | null;
+  email: string | null;
+  telefono: string | null;
+  rol: string;
+  activo: boolean;
+}
+
 interface FilaMiembroConContacto {
   id: string;
   cotoId: string;
@@ -19,6 +34,23 @@ interface FilaMiembroConContacto {
     email?: string;
     telefono?: string | null;
   } | null;
+}
+
+function filaDirectorioADto(f: FilaDirectorio): z.infer<typeof MiembroCotoDto> {
+  return {
+    id: f.id,
+    cotoId: f.coto_id,
+    unidadId: f.unidad_id,
+    unidadNumero: f.unidad_numero,
+    usuarioId: f.usuario_id,
+    nombre: f.nombre,
+    apellidoPaterno: f.apellido_paterno,
+    apellidoMaterno: f.apellido_materno,
+    email: f.email,
+    telefono: f.telefono,
+    rol: f.rol as z.infer<typeof MiembroCotoDto>['rol'],
+    activo: f.activo,
+  };
 }
 
 function aDto(m: FilaMiembroConContacto): z.infer<typeof MiembroCotoDto> {
@@ -47,37 +79,13 @@ export async function listar(
   if (cursor && !Uuid.safeParse(cursor).success) {
     throw new AppError(422, 'validacion', 'Cursor inválido');
   }
-  const [perm] = await tx.$queryRaw<{ staff: boolean; contacto: boolean }[]>`
-    SELECT (${cotoId}::uuid = ANY (app.cotos_staff())) AS staff,
-           (${cotoId}::uuid = ANY (app.cotos_finanzas())) AS contacto
+  const filas = await tx.$queryRaw<FilaDirectorio[]>`
+    SELECT * FROM app.directorio_coto(${cotoId}::uuid, ${limite}::integer, ${cursor ?? null}::uuid)
   `;
-  if (!perm?.staff) throw new AppError(403, 'sin_permiso', 'No tienes permiso para ver el directorio de este coto');
-
-  const filas = await tx.miembroCoto.findMany({
-    where: { cotoId, activo: true },
-    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-    take: limite + 1,
-    ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
-    select: {
-      id: true,
-      cotoId: true,
-      unidadId: true,
-      usuarioId: true,
-      rol: true,
-      activo: true,
-      unidad: { select: { numero: true } },
-      usuario: {
-        select: {
-          nombre: true,
-          apellidoPaterno: true,
-          apellidoMaterno: true,
-          ...(perm.contacto ? { email: true, telefono: true } : {}),
-        },
-      },
-    },
-  });
-  const siguiente = filas.length > limite ? filas.pop()?.id : undefined;
-  return { datos: filas.map(aDto), siguiente };
+  const hayMas = filas.length > limite;
+  if (hayMas) filas.pop();
+  const siguiente = hayMas ? filas.at(-1)?.id : undefined;
+  return { datos: filas.map(filaDirectorioADto), siguiente };
 }
 
 export async function actualizar(

@@ -230,7 +230,8 @@ LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp 
 DECLARE
   v_org uuid;
 BEGIN
-  IF TG_OP = 'INSERT' AND current_user = 'app_service' THEN
+  IF TG_OP = 'INSERT'
+     AND coalesce(nullif(current_setting('role', true), 'none'), session_user) = 'app_service' THEN
     NEW.created_at := now();
   END IF;
   IF NEW.coto_id IS NOT NULL THEN
@@ -349,7 +350,84 @@ END $$;
 REVOKE EXECUTE ON FUNCTION app.aceptar_invitacion(text, uuid, citext, text, text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION app.aceptar_invitacion(text, uuid, citext, text, text) TO app_service, app_worker;
 
--- ─── 4. Perfil de membresías para el usuario autenticado ────────────
+-- ─── 4. Perfil de membresías y directorio acotado por LFPDPPP ────────
+-- Comité (sin cotos_finanzas) no ve filas de otros miembros en `usuarios` ni email/teléfono en el directorio.
+DROP POLICY sel ON usuarios;
+CREATE POLICY sel ON usuarios FOR SELECT TO app_service USING (
+     id = (SELECT app.uid())
+  OR EXISTS (SELECT 1 FROM miembros_coto m
+              WHERE m.usuario_id = usuarios.id AND m.activo
+                AND (m.coto_id = ANY ((SELECT app.cotos_finanzas())::uuid[])
+                     OR m.unidad_id = ANY ((SELECT app.unidades_mias())::uuid[])))
+  OR EXISTS (SELECT 1 FROM org_miembros om
+              WHERE om.usuario_id = usuarios.id AND om.org_id = ANY ((SELECT app.orgs_lectura())::uuid[])));
+
+CREATE FUNCTION app.directorio_coto(p_coto uuid, p_limite integer DEFAULT 20, p_cursor uuid DEFAULT NULL)
+RETURNS TABLE (
+  id uuid,
+  coto_id uuid,
+  unidad_id uuid,
+  unidad_numero text,
+  usuario_id uuid,
+  nombre text,
+  apellido_paterno text,
+  apellido_materno text,
+  email text,
+  telefono text,
+  rol text,
+  activo boolean
+)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $$
+DECLARE
+  v_contacto boolean;
+  v_coto_activo uuid := app.coto_activo();
+  v_cur_created timestamptz;
+  v_cur_id uuid;
+  v_lim integer := least(greatest(coalesce(p_limite, 20), 1), 100);
+BEGIN
+  IF NOT (p_coto = ANY ((SELECT app.cotos_staff())::uuid[])) THEN
+    RAISE EXCEPTION 'Sin permiso para ver el directorio de este coto' USING ERRCODE = 'UA403';
+  END IF;
+  IF v_coto_activo IS NOT NULL AND p_coto IS DISTINCT FROM v_coto_activo THEN
+    RETURN;
+  END IF;
+  IF p_cursor IS NOT NULL THEN
+    SELECT mc.created_at, mc.id INTO v_cur_created, v_cur_id
+      FROM miembros_coto mc
+     WHERE mc.id = p_cursor AND mc.coto_id = p_coto AND mc.activo;
+    IF NOT FOUND THEN
+      RETURN;
+    END IF;
+  END IF;
+
+  v_contacto := p_coto = ANY ((SELECT app.cotos_finanzas())::uuid[]);
+
+  RETURN QUERY
+  SELECT m.id,
+         m.coto_id,
+         m.unidad_id,
+         un.numero::text AS unidad_numero,
+         m.usuario_id,
+         u.nombre::text,
+         u.apellido_paterno::text,
+         u.apellido_materno::text,
+         CASE WHEN v_contacto THEN u.email::text ELSE NULL END AS email,
+         CASE WHEN v_contacto THEN u.telefono::text ELSE NULL END AS telefono,
+         m.rol::text,
+         m.activo
+    FROM miembros_coto m
+    JOIN usuarios u ON u.id = m.usuario_id
+    LEFT JOIN unidades un ON un.id = m.unidad_id
+   WHERE m.coto_id = p_coto
+     AND m.activo
+     AND u.activo
+     AND (v_cur_created IS NULL OR (m.created_at, m.id) > (v_cur_created, v_cur_id))
+   ORDER BY m.created_at ASC, m.id ASC
+   LIMIT v_lim + 1;
+END $$;
+REVOKE EXECUTE ON FUNCTION app.directorio_coto(uuid, integer, uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION app.directorio_coto(uuid, integer, uuid) TO app_service, app_worker;
+
 CREATE FUNCTION app.mis_membresias()
 RETURNS TABLE (coto_id uuid, coto text, org_id uuid, rol text, unidad_id uuid, unidad text)
 LANGUAGE sql STABLE AS $$

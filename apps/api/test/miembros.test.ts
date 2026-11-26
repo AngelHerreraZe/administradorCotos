@@ -1,4 +1,5 @@
 import type { PrismaClient } from '@admcotos/db';
+import { AppError } from '@admcotos/shared';
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from 'jose';
 import { pino } from 'pino';
 import { beforeAll, describe, expect, test } from 'vitest';
@@ -81,13 +82,24 @@ describe('módulo de miembros', () => {
       },
     };
 
+    const filaDirectorio = {
+      id: MIEMBRO_ID,
+      coto_id: COTO_ID,
+      unidad_id: UNIDAD_ID,
+      unidad_numero: '101',
+      usuario_id: USER_ID,
+      nombre: 'Juan',
+      apellido_paterno: 'Pérez',
+      apellido_materno: null,
+      email: 'juan@alfa.mx',
+      telefono: '3312345678',
+      rol: 'residente_propietario',
+      activo: true,
+    };
+
     const app = appConTx({
-      $queryRaw: async () => [{ staff: true, contacto: true }],
+      $queryRaw: async () => [filaDirectorio],
       miembroCoto: {
-        findMany: async ({ where }: { where: { activo?: boolean } }) => {
-          expect(where.activo).toBe(true);
-          return [mBase];
-        },
         findFirst: async () => ({ id: MIEMBRO_ID, rol: 'residente_propietario', unidadId: UNIDAD_ID }),
         update: async ({ data }: { data: { activo?: boolean; rol?: string } }) => ({
           id: MIEMBRO_ID,
@@ -125,31 +137,27 @@ describe('módulo de miembros', () => {
     expect(patchDesactivar.status).toBe(200);
     expect(await patchDesactivar.json()).toMatchObject({ id: MIEMBRO_ID, activo: false, email: null, nombre: null });
 
-    // Comité no recibe email ni teléfono (LFPDPPP)
+    // BD (app.directorio_coto) entrega email/teléfono null al comité y devuelve cursor siguiente sin saltar elementos
     const appComite = appConTx({
-      $queryRaw: async () => [{ staff: true, contacto: false }],
-      miembroCoto: {
-        findMany: async ({ select }: { select: { usuario: { select: Record<string, boolean> } } }) => {
-          expect(select.usuario.select.email).toBeUndefined();
-          expect(select.usuario.select.telefono).toBeUndefined();
-          return [
-            {
-              ...mBase,
-              usuario: { nombre: 'Juan', apellidoPaterno: 'Pérez', apellidoMaterno: null },
-            },
-          ];
-        },
-      },
+      $queryRaw: async () => [
+        { ...filaDirectorio, email: null, telefono: null },
+        { ...filaDirectorio, id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', email: null, telefono: null },
+      ],
     });
-    const resComite = await appComite.request(`/api/v1/cotos/${COTO_ID}/miembros`, {
+    const resComite = await appComite.request(`/api/v1/cotos/${COTO_ID}/miembros?limite=1`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     expect(resComite.status).toBe(200);
     expect(await resComite.json()).toMatchObject({
       datos: [{ id: MIEMBRO_ID, nombre: 'Juan', email: null, telefono: null }],
+      siguiente: MIEMBRO_ID,
     });
 
-    const appSinPermiso = appConTx({ $queryRaw: async () => [{ staff: false, contacto: false }] });
+    const appSinPermiso = appConTx({
+      $queryRaw: async () => {
+        throw new AppError(403, 'bd.ua403', 'Sin permiso para ver el directorio de este coto');
+      },
+    });
     expect(
       (
         await appSinPermiso.request(`/api/v1/cotos/${COTO_ID}/miembros`, {

@@ -477,6 +477,26 @@ test('identidad e invitaciones: políticas RLS, pre-auth, auditoría con usuario
     [ORG_A, A1, UA1B, sha(tokOk), u.adminA1],
   );
 
+  // M1: tg_invitacion_defaults fuerza created_at = now() para app_service (no evade CHECK de 7 días ni falsea pasado)
+  await assert.rejects(
+    como(
+      u.adminA1,
+      `INSERT INTO invitaciones_miembro (org_id, coto_id, email, rol, token_hash, expira_en, creada_por, created_at)
+       VALUES ($1, $2, 'futuro@alfa.mx', 'guardia', $3, now() + interval '400 days', $4, now() + interval '395 days')`,
+      [ORG_A, A1, sha('inv-futuro'), u.adminA1],
+    ),
+    /invitaciones_miembro_exp_ck/,
+  );
+  const [{ created_at: createdAtPasado, id: invPasadoId }] = await como(
+    u.adminA1,
+    `INSERT INTO invitaciones_miembro (org_id, coto_id, email, rol, token_hash, expira_en, creada_por, created_at)
+     VALUES ($1, $2, 'pasado@alfa.mx', 'guardia', $3, now() + interval '2 days', $4, now() - interval '10 days')
+     RETURNING id, created_at`,
+    [ORG_A, A1, sha('inv-pasado'), u.adminA1],
+  );
+  assert.ok(Math.abs(Date.now() - new Date(createdAtPasado).getTime()) < 60_000);
+  await db.query(`DELETE FROM invitaciones_miembro WHERE id = $1`, [invPasadoId]);
+
   // Políticas sel y coto_activo en invitaciones_miembro
   assert.equal(await contar(u.adminA1, 'invitaciones_miembro'), 1);
   assert.equal(await contar(u.adminA1, 'invitaciones_miembro', { aal: 'aal1' }), 0); // sin MFA no ve
@@ -681,4 +701,34 @@ test('identidad e invitaciones: políticas RLS, pre-auth, auditoría con usuario
   await db.query(`UPDATE usuarios SET activo = false WHERE id = $1`, [uid1]);
   assert.equal(await contar(uid1, 'cargos', { aal: 'aal1' }), 0);
   await db.query(`UPDATE usuarios SET activo = true WHERE id = $1`, [uid1]);
+
+  // M2: LFPDPPP en BD: comité no lee otros usuarios directamente y directorio_coto oculta email/teléfono salvo finanzas
+  const usuariosComite = await como(u.comiteA1, `SELECT id FROM usuarios`, [], { aal: 'aal1' });
+  assert.deepEqual(
+    usuariosComite.map((r) => r.id),
+    [u.comiteA1],
+  );
+  const dirComite = await como(u.comiteA1, `SELECT * FROM app.directorio_coto($1, 20, NULL)`, [A1], { aal: 'aal1' });
+  assert.ok(dirComite.length >= 6);
+  for (const fila of dirComite) {
+    assert.equal(fila.email, null);
+    assert.equal(fila.telefono, null);
+  }
+  const dirFinanzas = await como(u.tesA1, `SELECT * FROM app.directorio_coto($1, 20, NULL)`, [A1], { aal: 'aal1' });
+  assert.ok(dirFinanzas.some((fila) => typeof fila.email === 'string' && fila.email.includes('@')));
+
+  // Paginación por cursor e invariante coto_activo + rechazo a no-staff
+  const pag1 = await como(u.adminA1, `SELECT * FROM app.directorio_coto($1, 2, NULL)`, [A1]);
+  assert.equal(pag1.length, 3);
+  const pag2 = await como(u.adminA1, `SELECT * FROM app.directorio_coto($1, 2, $2)`, [A1, pag1[1].id]);
+  assert.ok(pag2.length >= 1);
+  assert.equal(pag2[0].id, pag1[2].id);
+
+  assert.equal(
+    (await como(u.adminA1, `SELECT * FROM app.directorio_coto($1, 20, NULL)`, [A1], { coto: A2 })).length,
+    0,
+  );
+  await assert.rejects(como(u.propA1, `SELECT * FROM app.directorio_coto($1, 20, NULL)`, [A1]), /Sin permiso/);
+  await assert.rejects(como(u.guardA1, `SELECT * FROM app.directorio_coto($1, 20, NULL)`, [A1]), /Sin permiso/);
+  await assert.rejects(como(u.ownerB, `SELECT * FROM app.directorio_coto($1, 20, NULL)`, [A1]), /Sin permiso/);
 });

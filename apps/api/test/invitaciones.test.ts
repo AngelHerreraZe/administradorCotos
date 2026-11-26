@@ -1,5 +1,5 @@
 import type { PrismaClient } from '@admcotos/db';
-import type { PayloadCorreo } from '@admcotos/shared';
+import { AppError, type PayloadCorreo } from '@admcotos/shared';
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from 'jose';
 import { pino } from 'pino';
 import { beforeAll, describe, expect, test } from 'vitest';
@@ -243,12 +243,115 @@ describe('módulo de invitaciones', () => {
     expect(r403.status).toBe(403);
 
     const tokenOk = await firmarToken({ email: 'nuevo@alfa.mx' });
-    const r200 = await app.request('/api/v1/invitaciones/aceptar', {
+    const ok = await app.request('/api/v1/invitaciones/aceptar', {
       method: 'POST',
       headers: { Authorization: `Bearer ${tokenOk}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ token: 'a'.repeat(32), nombre: 'Luis', apellidoPaterno: 'Díaz' }),
     });
-    expect(r200.status).toBe(200);
-    expect(await r200.json()).toEqual({ usuarioId: USER_ID });
+    expect(ok.status).toBe(200);
+    expect(await ok.json()).toEqual({ usuarioId: USER_ID });
+  });
+
+  test('si encolarCorreo falla con 503, la transacción se revierte y el reintento con misma Idempotency-Key sí crea y encola una vez (B1)', async () => {
+    const ahora = new Date('2026-11-26T16:00:00Z');
+    let confirmadas = new Map<string, Record<string, unknown>>();
+    const encolados: PayloadCorreo[] = [];
+    let fallarCola = true;
+
+    const prisma = {
+      $queryRaw: async () => [{ id: USER_ID }],
+      $transaction: async (fn: (t: unknown) => Promise<unknown>) => {
+        const snapshot = new Map(confirmadas);
+        let borrador = new Map(confirmadas);
+        try {
+          const tx = {
+            $executeRaw: async (strings: TemplateStringsArray) => {
+              const sql = strings.join('');
+              if (sql.includes('ROLLBACK TO SAVEPOINT')) borrador = new Map(snapshot);
+              return 1;
+            },
+            $queryRaw: async () => [{ ok: true }],
+            coto: { findUnique: async () => ({ id: COTO_ID, orgId: ORG_ID, nombre: 'Miraflores', activo: true }) },
+            invitacionMiembro: {
+              create: async ({
+                data,
+              }: {
+                data: { email: string; rol: string; unidadId: string | null; claveIdempotencia?: string };
+              }) => {
+                if (data.claveIdempotencia && borrador.has(data.claveIdempotencia)) {
+                  throw Object.assign(new Error('Unique violation'), { code: 'P2002' });
+                }
+                const fila = {
+                  id: INV_ID,
+                  orgId: ORG_ID,
+                  cotoId: COTO_ID,
+                  unidadId: data.unidadId,
+                  email: data.email,
+                  rol: data.rol,
+                  expiraEn: new Date(ahora.getTime() + 7 * 86_400_000 - 60_000),
+                  aceptadaEn: null,
+                  revocadaEn: null,
+                  createdAt: ahora,
+                };
+                if (data.claveIdempotencia) borrador.set(data.claveIdempotencia, fila);
+                return fila;
+              },
+              findFirst: async ({ where }: { where: { claveIdempotencia?: string } }) =>
+                where.claveIdempotencia ? (borrador.get(where.claveIdempotencia) ?? null) : null,
+            },
+          };
+          const res = await fn(tx);
+          confirmadas = borrador;
+          return res;
+        } catch (err) {
+          confirmadas = snapshot;
+          throw err;
+        }
+      },
+    } as unknown as PrismaClient;
+
+    const app = createApp({
+      env,
+      prisma,
+      log: pino({ level: 'silent' }),
+      jwks,
+      limitador: { async consumir() {} },
+      encolarCorreo: async (p) => {
+        if (fallarCola) {
+          throw new AppError(503, 'servicio_no_disponible', 'El servicio de correo no está disponible temporalmente');
+        }
+        encolados.push(p);
+      },
+    });
+
+    const token = await firmarToken();
+    const intento1 = await app.request(`/api/v1/cotos/${COTO_ID}/invitaciones`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', 'Idempotency-Key': IDEM_KEY },
+      body: JSON.stringify({ email: 'vecino@alfa.mx', rol: 'residente_propietario', unidadId: UNIDAD_ID }),
+    });
+    expect(intento1.status).toBe(503);
+    expect(confirmadas.size).toBe(0);
+    expect(encolados).toHaveLength(0);
+
+    fallarCola = false;
+    const intento2 = await app.request(`/api/v1/cotos/${COTO_ID}/invitaciones`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', 'Idempotency-Key': IDEM_KEY },
+      body: JSON.stringify({ email: 'vecino@alfa.mx', rol: 'residente_propietario', unidadId: UNIDAD_ID }),
+    });
+    expect(intento2.status).toBe(201);
+    const dto = await intento2.json();
+    expect(confirmadas.size).toBe(1);
+    expect(encolados).toHaveLength(1);
+
+    const intento3 = await app.request(`/api/v1/cotos/${COTO_ID}/invitaciones`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', 'Idempotency-Key': IDEM_KEY },
+      body: JSON.stringify({ email: 'vecino@alfa.mx', rol: 'residente_propietario', unidadId: UNIDAD_ID }),
+    });
+    expect(intento3.status).toBe(200);
+    expect(await intento3.json()).toEqual(dto);
+    expect(encolados).toHaveLength(1);
   });
 });

@@ -1,5 +1,5 @@
 import type { Prisma } from '@admcotos/db';
-import { AppError, Uuid } from '@admcotos/shared';
+import { AppError } from '@admcotos/shared';
 
 export function esErrorPrisma(err: unknown, codigo: string): boolean {
   return typeof err === 'object' && err !== null && (err as { code?: string }).code === codigo;
@@ -18,15 +18,6 @@ export async function actualizarConRls<T>(fn: () => Promise<T>): Promise<T> {
     }
     throw err;
   }
-}
-
-export function extraerIdempotencyKey(raw: string | undefined): string | undefined {
-  if (!raw) return undefined;
-  const parsed = Uuid.safeParse(raw.trim());
-  if (!parsed.success) {
-    throw new AppError(422, 'validacion', 'El encabezado Idempotency-Key debe ser un UUID válido');
-  }
-  return parsed.data.toLowerCase();
 }
 
 /**

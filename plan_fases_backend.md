@@ -587,7 +587,7 @@ LANGUAGE sql STABLE AS $$ /* INVOKER: miembros_coto ⋈ cotos ⋈ unidades filtr
 | GET · POST · PATCH | `/api/v1/cotos/{cotoId}/sectores[/{id}]` | `cotos_miembro` · `cotos_admin` | |
 | GET · POST · PATCH | `/api/v1/cotos/{cotoId}/unidades[/{id}]` | staff/caseta/propia · `cotos_admin` | Plantilla §3.1 |
 | POST | `/api/v1/cotos/{cotoId}/unidades/importar` | `cotos_admin` | CSV ≤ 5 000 filas, `csv-parse` en streaming, valida todo antes de insertar, inserta en una transacción, reporta errores por fila |
-| GET · PATCH | `/api/v1/cotos/{cotoId}/miembros[/{id}]` | `cotos_staff` · `cotos_admin` | Solo activos desde `miembros_coto ⋈ usuarios`; `coto_comite` no recibe email/teléfono |
+| GET · PATCH | `/api/v1/cotos/{cotoId}/miembros[/{id}]` | `cotos_staff` · `cotos_admin` | `app.directorio_coto` (DEFINER: activos; email/teléfono solo a `cotos_finanzas`) |
 | POST · GET | `/api/v1/cotos/{cotoId}/invitaciones` | `cotos_admin` | Genera token (32 bytes `base64url`), guarda hash, encola correo; soporta `Idempotency-Key` |
 | POST | `/api/v1/invitaciones/{id}/revocar` | `cotos_admin` | |
 | POST | `/api/v1/orgs/{orgId}/soporte` | `orgs_owner` | Abre ventana de soporte (≤ 72 h); soporta `Idempotency-Key` |

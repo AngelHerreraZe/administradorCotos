@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { AppError } from '@admcotos/shared';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { type EscenarioE2E, iniciarEscenarioE2E } from './setup.ts';
 
@@ -84,11 +85,28 @@ describe('E2E Fase 1 contra PostgreSQL real (app_service + RLS)', () => {
     expect(postConMfa.status).toBe(201);
   });
 
-  test('invitación de punta a punta: idempotencia, #token=, auditoría con usuario_id real, aceptar y /me', async () => {
+  test('invitación de punta a punta: rollback ante fallo de cola, idempotencia, #token=, auditoría con usuario_id real, aceptar y /me', async () => {
     const jwtAdmin = await ctx.firmarJwt(ctx.usuarios.adminA1.authId, { aal: 'aal2' });
     const emailInvitado = `nuevo-${crypto.randomUUID().slice(0, 8)}@alfa.mx`;
     const idemKey = crypto.randomUUID();
 
+    // Si encolarCorreo falla con 503, la transacción se revierte sin dejar clave_idempotencia huérfana
+    ctx.fallarSiguienteCorreo(
+      new AppError(503, 'servicio_no_disponible', 'El servicio de correo no está disponible temporalmente'),
+    );
+    const crearFallo = await ctx.app.request(`/api/v1/cotos/${ctx.cotoA1}/invitaciones`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${jwtAdmin}`,
+        'Content-Type': 'application/json',
+        'Idempotency-Key': idemKey,
+      },
+      body: JSON.stringify({ email: emailInvitado, rol: 'residente_propietario', unidadId: ctx.unidadA1B }),
+    });
+    expect(crearFallo.status).toBe(503);
+    expect(ctx.correos.filter((c) => c.para === emailInvitado)).toHaveLength(0);
+
+    // Reintento con la misma Idempotency-Key tras fallo -> 201 y un correo encolado
     const crear1 = await ctx.app.request(`/api/v1/cotos/${ctx.cotoA1}/invitaciones`, {
       method: 'POST',
       headers: {

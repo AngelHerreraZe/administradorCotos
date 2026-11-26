@@ -23,6 +23,10 @@ const DESCRIPCIONES: Record<number, string> = {
 
 type CodigoError = 401 | 403 | 404 | 409 | 422 | 429;
 
+export const IdempotencyHeader = z.object({
+  'idempotency-key': z.uuid().optional(),
+});
+
 export function respuestasError(...codigos: CodigoError[]) {
   const out: Partial<
     Record<
