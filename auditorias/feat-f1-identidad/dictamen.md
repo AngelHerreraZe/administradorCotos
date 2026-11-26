@@ -1,9 +1,9 @@
 # Dictamen: feat/f1-identidad
 
 Veredicto: CAMBIOS
-Commit auditado: 8d5d376aab0389980c0c432805a78b0fef9645d0
+Commit auditado: 5f2fda0120feaef00b5adcf8b33957478523995e
 Base: 27e585944582fbf1ed6d6f09cf66c3c9d384dd15
-Ronda: 1
+Ronda: 2
 Fecha: 2026-11-26
 
 ## Verificaciones
@@ -11,93 +11,56 @@ Fecha: 2026-11-26
 | :--- | :--- |
 | `npm ci` (cambió `package-lock.json`) | ✅ instalación limpia |
 | `npm run db:generate` (cambió `schema.prisma`) | ✅ Prisma Client 7.10.1 |
-| `npm run check` | ✅ Biome: 94 archivos, 0 errores. 13/13 tareas. 59 pruebas: api 33, db/RLS 16, worker 4, notifications 3, security 3 |
-| `npm audit --omit=dev --audit-level=high` | ❌ salida 1: 3 altas (`effect` ≤ 3.22.0, GHSA-7589-6fvf-x4pw, vía `@prisma/config@7.10.1` → `prisma@7.10.1`). Ya estaba en `main` (`27e5859`) |
+| `npm run check` | ✅ Biome: 95 archivos, 0 errores. 13/13 tareas. 61 pruebas: api 35, db/RLS 16, worker 4, notifications 3, security 3 |
+| `npm audit --omit=dev --audit-level=high` | ✅ 0 vulnerabilidades |
 | Migraciones en Postgres real | Pendiente de CI (`migraciones-postgres`) |
-| E2E (`npm run test:e2e`) | Pendiente de CI (`e2e`): Docker no está disponible en este equipo |
-| Comprobaciones adicionales del auditor | Scripts desechables fuera del repo: Redis caído con la configuración de `main.ts` deja `consume()` pendiente después de 8 s; en PGlite, un miembro desactivado deja de ser visible para el staff y `aceptar_invitacion` deja el `auth_id` como `usuario_id` en `audit_outbox` |
+| E2E (`npm run test:e2e`) | Pendiente de CI (`e2e`): Docker no está disponible en este equipo. La idempotencia con `SAVEPOINT` y el `PATCH` de miembros solo se prueban ahí: las pruebas unitarias simulan `tx` |
+| Comprobaciones adicionales del auditor | Scripts desechables fuera del repo: con Redis inalcanzable, `crearRecursosRedis` rechaza `consumir()` en 1 ms y `encolarCorreo` en 0 ms (503). En PGlite, la auditoría de `aceptar_invitacion` registra el `usuarios.id` real; el directorio solo con activos ya no pierde filas de `usuarios`; y una invitación insertada como `app_service` con `created_at` futuro se guarda tal cual (ver M1) |
 
-Además se verificó que las funciones reescritas (`generar_cargos`, `aplicar_pago`, `validar_acceso`, `votar`, `guardar_csd`) sean idénticas a las de `seguridad_rls`. Solo cambian los `ERRCODE` a `UA4xx`. Ninguna migración previa se modificó. `security.ts` no se tocó. Las dependencias nuevas usan la última versión estable, con versión exacta y en el workspace correcto.
+La migración `20261126000200_identidad` se volvió a editar, pero no existe en `main` (aparece como `A` respecto a la base), así que no se viola la regla 14.
 
 ## Hallazgos
 
-### B1 · BLOQUEANTE · `package-lock.json:3864`
-El gate `npm audit --omit=dev --audit-level=high` está en rojo. `@prisma/config@7.10.1` fija `effect` en `3.20.0`, que es vulnerable a GHSA-7589-6fvf-x4pw (ReDoS). La vulnerabilidad ya existía desde la Fase 0, así que Gemini no la introdujo, pero un gate en rojo impide aprobar. Sí existen versiones parcheadas en la rama 3.x (`effect@3.22.5`).
-**Resuelto cuando:** `npm audit --omit=dev --audit-level=high` termina con salida 0, por ejemplo con `"overrides": { "effect": "3.22.5" }` en el `package.json` raíz, y `db:generate`, `check` y `db:migrate:deploy` siguen funcionando. La otra salida es que el usuario documente una excepción explícita (ver *Para el usuario*).
+### B1 · BLOQUEANTE · `apps/api/src/modules/invitaciones/routes.ts:116-123`
+La combinación de los arreglos de B2 y B6 de la ronda anterior puede perder invitaciones en silencio. La invitación se confirma en BD (`conTenant`, línea 116) y el correo se encola **después** del commit (línea 123). Si Redis no responde, `encolarCorreo` ahora falla rápido con `503`, que es lo correcto, pero la fila ya quedó guardada con su `clave_idempotencia` y el token en claro, que solo existía en memoria, se perdió. Cuando el cliente reintenta con la misma `Idempotency-Key` (justo el uso para el que existe), `conIdempotencia` encuentra la fila y responde **`200`** sin encolar nada. El cliente cree que la invitación salió, pero el correo nunca se envía y nadie puede aceptarla. Esto rompe la garantía de la regla 9: un reintento debe completar la operación, no confirmar una a medias.
+**Resuelto cuando:** si falla el encolado, una invitación no puede quedar confirmada en BD. Por ejemplo, encolando dentro de la transacción, antes del commit, para que el error la revierta. Gemini elige el mecanismo. Debe haber una prueba en la que `encolarCorreo` falla en la primera llamada y funciona en la segunda: el reintento con la misma `Idempotency-Key` deja exactamente un correo encolado para una invitación válida.
 
-### B2 · BLOQUEANTE · `apps/api/src/main.ts:19` · `apps/api/src/middleware/rate-limit.ts:182`
-Si Redis cae, la API entera se queda colgada. El limitador y la cola comparten una conexión ioredis con `maxRetriesPerRequest: null` y la cola *offline* activa, así que `RateLimiterRedis.consume()` nunca resuelve ni rechaza: se reprodujo con la misma configuración contra un puerto sin Redis y la promesa seguía pendiente a los 8 s. Por eso el `catch` de `limiteTasaGeneral` nunca corre. No hay "falla abierto" en la API general ni `503` en las rutas críticas, como exige §3.8 del plan: toda petición autenticada espera indefinidamente. `colaCorreo.add` (`main.ts:30`) tiene el mismo problema en `POST /cotos/{id}/invitaciones`. La prueba `rate-limit.test.ts:62` no lo detecta porque su Redis falso lanza el error de inmediato.
-**Resuelto cuando:** con Redis inalcanzable, una ruta general responde normalmente y una ruta con `falloCerrado` responde `503` en un tiempo acotado (≤ 1 s). Opciones: una conexión propia para el limitador con `enableOfflineQueue: false` o `rejectIfRedisNotReady: true`, y un productor de cola que falle rápido. Debe haber una prueba que reproduzca un Redis no listo, no solo uno que lanza errores.
+### M1 · MENOR · `packages/db/prisma/migrations/20261126000200_identidad/migration.sql:233`
+`tg_invitacion_defaults` es `SECURITY DEFINER`, y dentro de esa función `current_user` es el **dueño** de la función, nunca `app_service`. Por eso la condición `current_user = 'app_service'` jamás se cumple y `created_at` no se fuerza a `now()`. Reproducido en PGlite: como `app_service` se insertó una invitación con `created_at = now() + 395 días` y `expira_en = now() + 400 días`, y el `CHECK` de 7 días la aceptó. Es el punto (b) de M9 de la ronda anterior, que la entrega da por resuelto. La API no lo explota, pero la regla de BD no protege nada.
+**Resuelto cuando:** un escenario de `rls.test.ts` que inserta como `app_service` con `created_at` en el pasado o el futuro obtiene `created_at = now()` (o un rechazo). Pistas: `current_setting('role')` o `session_user` sí reflejan quién llama dentro de una función `DEFINER`.
 
-### B3 · BLOQUEANTE · `apps/api/src/middleware/auth.ts:89-93`
-`autenticacionPreRegistro` acepta `user_metadata.email_verified === true` como prueba de que el correo está verificado. En Supabase, `user_metadata` lo edita la propia persona (`supabase.auth.updateUser({ data })`), y Supabase advierte que no se use para autorizar. Ese control, el único que distingue "correo verificado" en `POST /invitaciones/aceptar`, queda en manos del cliente.
-**Resuelto cuando:** ninguna decisión de seguridad depende de `user_metadata`. La verificación se apoya en algo que la persona no puede alterar (qué claim o configuración de Supabase usar lo decide el usuario). Una prueba demuestra que un JWT con solo `user_metadata.email_verified: true` es rechazado.
+### M2 · MENOR · `apps/api/src/modules/miembros/service.ts:50-53,74`
+La restricción "el comité no ve correo ni teléfono" existe solo en la API: la política `sel` de `usuarios` sigue entregando esas columnas a cualquier `cotos_staff`. La regla 4 de AGENTS.md pide que la autorización viva en Postgres. Hoy funciona porque ningún otro endpoint expone `usuarios` al comité, pero un endpoint futuro filtraría esos datos. Si la regla de minimización es definitiva, conviene llevarla a BD (función `DEFINER` o vista que devuelva el contacto solo a `cotos_finanzas`). Ver *Para el usuario*.
 
-### B4 · BLOQUEANTE · `apps/api/src/lib/tenant.ts:41` · `packages/db/prisma/migrations/20261126000200_identidad/migration.sql:188`
-`conTenantPreRegistro` firma el `authId` como si fuera el `userId` del contexto. Dentro de `app.aceptar_invitacion`, `app.uid()` devuelve entonces el `auth_id`, y `tg_auditar` lo escribe en `audit_outbox.usuario_id`. Reproducido en PGlite: `miembros_coto.insert` e `invitaciones_miembro.update` quedan con `usuario_id = <auth_id>` y no con el `usuarios.id` creado. `audit_log` es inmutable y está encadenado con HMAC, así que el actor queda mal registrado para siempre y no se puede unir con `usuarios`. Las pruebas de `rls.test.ts:488-500` llaman la función con `como(null, …)`, sin el contexto que usa la API, y por eso no lo detectan.
-**Resuelto cuando:** tras aceptar una invitación, las filas de auditoría tienen `usuario_id` igual al `usuarios.id` resultante (o `NULL`, si así se decide de forma explícita), y un escenario en `rls.test.ts` lo afirma con el mismo contexto que firma la API. Ya que se toca este flujo: hoy cualquier llamador `app_service` puede pasar cualquier `p_auth`/`p_email`. Conviene que la BD ligue `p_auth` a la identidad firmada.
+### M3 · MENOR · `apps/api/src/lib/prisma.ts:23` · `apps/api/src/modules/invitaciones/routes.ts:114` · `apps/api/src/modules/orgs/routes.ts:133`
+`IdempotencyHeader` ya valida el encabezado con Zod en `createRoute`, pero el handler vuelve a leer el encabezado crudo y a validarlo con `extraerIdempotencyKey`. Basta con `c.req.valid('header')['idempotency-key']`, con lo que la función sobra. Además, `IdempotencyHeader` está duplicado en los dos `routes.ts`.
 
-### B5 · BLOQUEANTE · `apps/api/src/modules/miembros/service.ts:15-23`
-El directorio se rompe en cuanto se desactiva un miembro. La política `sel` de `usuarios` (`seguridad_rls/migration.sql:444-451`) solo muestra personas con una membresía **activa**. Reproducido en PGlite: después de `activo = false`, el admin del coto ya no ve la fila de `usuarios` de ese residente. `selectMiembro` trae `usuario` como relación requerida, así que Prisma recibe `null` y lanza un error de resultado inconsistente, que llega como `500`. Consecuencias: (a) `GET /cotos/{id}/miembros` devuelve 500 para todo el coto mientras exista un miembro inactivo sin otra membresía visible; (b) `PATCH /cotos/{id}/miembros/{id}` con `{ "activo": false }` falla al leer el resultado y la transacción se revierte, así que no se puede desactivar a nadie desde la API.
-**Resuelto cuando:** una prueba contra BD real (E2E) desactiva un miembro, el `PATCH` responde `200` y luego `GET …/miembros` responde `200`. La forma (filtrar activos, relación opcional o ajustar la política) la elige Gemini. Si implica ver datos de personas inactivas, lo decide el usuario.
-
-### B6 · BLOQUEANTE · `apps/api/src/modules/invitaciones/routes.ts:321-330` · `apps/api/src/modules/orgs/routes.ts:262-268`
-Ninguna creación acepta `Idempotency-Key` (AGENTS.md §3 regla 9, plan §3.1 y §3.6, definición de terminado §6). Para cotos, sectores y unidades existe una llave natural única que convierte un reintento en `409`. `POST /cotos/{id}/invitaciones` y `POST /orgs/{id}/soporte` no tienen ninguna: un doble clic o un reintento de red crea dos invitaciones y **envía dos correos**, o abre dos ventanas de soporte. `invitaciones_miembro` es una tabla nueva de esta misma migración y pudo nacer con `clave_idempotencia`. La entrega lo presenta como *Decisión*. Por AGENTS.md §8, una desviación de una regla va en *Pendientes y dudas* para que la resuelva la persona.
-**Resuelto cuando:** al menos invitaciones y soporte aceptan `Idempotency-Key` según §3.6, con una prueba: misma llave → mismo recurso, `200` y un solo correo encolado. Si el `409` por llave natural basta para cotos, sectores y unidades, lo decide el usuario.
-
-### B7 · BLOQUEANTE · `packages/db/test/rls.test.ts:439`
-A las políticas nuevas de `invitaciones_miembro` les faltan escenarios (§6, plan §3.4 paso 4: "quién ve, quién escribe, quién no, y referencia cruzada entre cotos"). No hay pruebas de:
-- **`sel`:** el admin del coto ve la invitación; el admin de otro coto u otra organización, un residente, un guardia y el staff con `aal1` no la ven.
-- **`upd`:** el admin de A2 o de B1 no puede revocar una invitación de A1.
-- **`coto_activo`:** con `app.coto_id` de otro coto, la invitación no se ve.
-- **Rama de despacho (`coto_id IS NULL`):** `ownerA` invita `org_admin`; un `org_admin` no puede; un owner con `aal1` tampoco.
-- **Invitación ya aceptada por otro `auth_id`:** `UA409 'ya fue utilizada'`.
-
-**Resuelto cuando:** existen esos escenarios y alguno falla si se elimina o afloja la política correspondiente.
-
-### M1 · MENOR · `apps/api/src/middleware/auth.ts:20-32`
-La caché `authId → usuarioId` nunca se invalida. Si back-office desactiva a alguien (`usuarios.activo = false`), esa persona conserva acceso hasta que se reinicie el proceso, porque `_cotos` no revisa `usuarios.activo`. Sigue al plan §3.2 ("la relación no cambia"), pero `activo` sí cambia. Ver *Para el usuario*.
-
-### M2 · MENOR · `apps/api/src/modules/invitaciones/service.ts:154` · `packages/shared/src/colas.ts:14-19`
-El token de invitación viaja en la *query* (`?token=`), por lo que puede filtrarse por `Referer`, historial o logs del portal. Conviene usar el fragmento (`#token=`) o exigir `Referrer-Policy: no-referrer` y limpiar la URL en el cliente. Además, `OPCIONES_JOB_CORREO` conserva 1 000 jobs completados y 10 000 fallidos en Redis, con el correo del destinatario y el token vigente en claro hasta por 7 días. Para la cola `correo` conviene `removeOnComplete: true` o un `age` corto.
-
-### M3 · MENOR · `apps/worker/src/processors/correo.ts:171`
-El envío no es idempotente frente a Resend. Si Resend envía pero la respuesta se pierde (*timeout*), el reintento duplica el correo, contra §3.7 ("trabajo idempotente"). Resend acepta una llave de idempotencia: se puede usar `job.id`.
-
-### M4 · MENOR · `apps/api/src/modules/unidades/routes.ts:301-304`
-El CSV se lee y se parsea **dentro** de la transacción interactiva (timeout por defecto de 5 s). Una subida lenta ocupa una conexión del pool y puede vencer la transacción, lo que da un `500` sin mapear. Conviene leer y validar primero (el cuerpo ya está limitado a 1 MB) y abrir la transacción solo para insertar.
-
-### M5 · MENOR · `apps/api/src/modules/orgs/schemas.ts` (`CotoResumen`) · `apps/api/src/modules/orgs/service.ts:96-99`
-`emitidoMes`, `cobradoMes` y `adeudoVencido` son dinero, pero el contrato usa `z.string()` y no `Monto` (regla 8). `Decimal.toString()` produce `"1450.5"` mientras el valor por omisión es `"0.00"`. Conviene usar `Monto` y formatear con `Decimal#toFixed(2)`, que es decimal.js y no float.
-
-### M6 · MENOR · `apps/api/src/modules/orgs/routes.ts:267`
-`Location: /api/v1/orgs/{orgId}/soporte/{id}` apunta a una ruta que no existe.
-
-### M7 · MENOR · `apps/api/src/modules/unidades/schemas.ts:45,55`
-`TipoSectorUnidadOrTipo()` es una función de un solo uso, con un nombre confuso, que solo devuelve `TipoUnidad.optional()`. Basta con usar ese valor directamente (AGENTS.md §5).
-
-### M8 · MENOR · `packages/db/prisma/migrations/20261126000200_identidad/migration.sql:118-124`
-Las FK `unidad_id` y `creada_por` no tienen índice (plantilla §3.4). El impacto es bajo porque no hay `DELETE`, pero queda anotado.
-
-### M9 · MENOR · `packages/db/prisma/migrations/20261126000200_identidad/migration.sql:144-153`
-Endurecimiento pendiente en BD:
-- `GRANT UPDATE (revocada_en)` y la política `upd` permiten des-revocar (`revocada_en = NULL`) y "revocar" una invitación ya aceptada. Se puede exigir `aceptada_en IS NULL AND revocada_en IS NULL` en `USING` y `revocada_en IS NOT NULL` en `WITH CHECK`, con su escenario.
-- El `CHECK` de vigencia ≤ 7 días se mide contra `created_at`, que envía la API (`invitaciones/service.ts:139`). La regla depende de un valor que controla la aplicación.
-
-### M10 · MENOR · `plan_fases_backend.md:585,612`
-- La fila de `POST /orgs/{orgId}/cotos` sigue diciendo "Valida límite de cotos del plan en servicio", aunque la entrega decidió lo contrario.
-- "Todos los endpoints de 1.3 con sus pruebas" está marcado `[x]`, pero faltan las pruebas de idempotencia (B6).
-
-### M11 · MENOR · `apps/api/src/app.ts:41,48`
-El límite de tasa corre después de verificar el JWT y de resolver el usuario en BD. Un JWT válido de alguien sin cuenta consulta `usuario_por_auth` en cada petición (el `null` no se cachea) sin ningún límite. Conviene aplicar el límite por IP antes de autenticar.
+## Ronda anterior
+- **B1 (`npm audit`):** resuelto. `"overrides": { "effect": "3.22.5" }` en `package.json:31`; el gate da 0 vulnerabilidades.
+- **B2 (Redis colgado):** resuelto. Conexiones *fail-fast* separadas (`apps/api/src/lib/redis.ts`) y `rejectIfRedisNotReady: true`. Verificado: rechazos en 0–1 ms.
+- **B3 (`user_metadata`):** resuelto. `apps/api/src/middleware/auth.ts:100` ya no lee `user_metadata`; la evidencia es la configuración *Confirm email* de Supabase, documentada en `.env.example`.
+- **B4 (actor de auditoría):** resuelto. Contexto pre-auth firmado, `app.auth_uid()` ligado a `p_auth` y nueva firma con el `usuarios.id` (`migration.sql:327`). Verificado en PGlite y afirmado en `rls.test.ts`.
+- **B5 (directorio con inactivos):** resuelto. Listado solo con activos y `PATCH` sin relación requerida (`miembros/service.ts:56-57,101-125`). Verificado del lado de BD; el flujo HTTP queda pendiente de E2E en CI.
+- **B6 (`Idempotency-Key`):** implementado en invitaciones y soporte con `clave_idempotencia` única, pero su interacción con el encolado introduce el B1 de esta ronda.
+- **B7 (escenarios RLS):** resuelto (`rls.test.ts:438-683`): `sel`, `aal1`, `coto_activo`, otro despacho, `upd`, rama de despacho, `UA409` y no des-revocar.
+- **M1 (caché):** resuelto. TTL de 60 s y `usuarios.activo` en `_cotos`, `_unidades` y `_orgs`.
+- **M2 (token y retención):** resuelto. `#token=` y `removeOnComplete: true`, `removeOnFail: { age: 3_600 }`.
+- **M3 (Resend):** resuelto. `idempotencyKey: job.id`.
+- **M4 (CSV en transacción):** resuelto. `parsearCsvUnidades` corre antes de `conTenant`.
+- **M5 (`Monto`):** resuelto.
+- **M6 (`Location`):** resuelto.
+- **M7 (helper):** resuelto.
+- **M8 (índices FK):** resuelto.
+- **M9 (endurecimiento de invitaciones):** parcial. La política `upd` ya impide des-revocar y revocar aceptadas; el `created_at` sigue sin forzarse (M1 de esta ronda).
+- **M10 (plan):** resuelto.
+- **M11 (límite por IP antes de autenticar):** resuelto.
 
 ## Para el usuario
-
-- **B1 (`effect`):** viene de la Fase 0. Hay que decidir entre un `overrides` a `effect@3.22.5` (forzar una versión distinta a la que fija `@prisma/config`) o una excepción documentada mientras sale una versión estable de Prisma que lo corrija.
-- **Regla 1 de AGENTS.md:** dice que la única consulta fuera de `withTenant` es `/health/ready`, pero el plan (§3.2, §5 1.1 b) exige llamar a `app.usuario_por_auth` antes de firmar el contexto (`auth.ts:25`). Conviene declarar esa excepción en AGENTS.md.
-- **B3:** qué evidencia de "correo verificado" usar con Supabase (por ejemplo, exigir *Confirm email* en el proyecto y confiar en el claim `email`).
-- **B6:** si el `409` por llave natural cumple la regla 9 para cotos, sectores y unidades.
-- **Tope de cotos por tier:** la entrega dice que el dueño del producto confirmó que no hay tope. Hay que confirmarlo y actualizar el plan (M10).
-- **Directorio:** `GET /cotos/{id}/miembros` entrega correo y teléfono de todos los miembros, incluidos residentes, a cualquier `cotos_staff`, también al comité. Decidir si el comité debe ver esos datos (LFPDPPP, minimización).
-- **M1:** si desactivar a un usuario debe surtir efecto de inmediato. Implica cambiar el diseño de caché de §3.2.
-- **E2E y `migraciones-postgres`:** no se ejecutaron (no hay Docker local). Quedan a cargo de CI.
+- **Decisiones que la entrega atribuye al usuario.** Confirma que son tuyas; un agente no puede tomarlas:
+  - el `overrides` de `effect@3.22.5`, a retirar cuando Prisma estable lo actualice;
+  - exigir *Confirm email* y desactivar sesiones anónimas en Supabase: la seguridad de `POST /invitaciones/aceptar` depende de esa configuración, que vive fuera del repo;
+  - aceptar el `409` por llave natural como idempotencia en cotos, sectores y unidades;
+  - ocultar correo y teléfono al comité (y si se quiere en BD: M2);
+  - ningún tope de cotos por tier.
+- **AGENTS.md regla 1:** sigue pendiente declarar la excepción de `app.usuario_por_auth`, que se consulta fuera de `withTenant` antes de firmar el contexto (`apps/api/src/middleware/auth.ts:35`).
+- **E2E y `migraciones-postgres`:** no se ejecutaron por falta de Docker; CI debe quedar en verde antes del merge.
