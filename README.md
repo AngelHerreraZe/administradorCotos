@@ -1,82 +1,66 @@
-# 🏢 Administrador de Cotos (Backend SaaS Multi-Tenant)
+# 🏢 Administrador de Cotos
 
-> Plataforma SaaS B2B2C para la administración integral de condominios, cotos residenciales y fraccionamientos cerrados en México y LATAM. Diseñada para venta al por mayor a despachos inmobiliarios y empresas administradoras con seguridad de grado bancario y cumplimiento estricto de la LFPDPPP y PCI-DSS.
+Plataforma SaaS B2B2C multi-inquilino para administrar condominios, cotos y fraccionamientos en México y LATAM: cobranza, accesos, comunicación y gobernanza. Se vende al mayoreo a despachos y desarrolladoras, con seguridad de grado bancario y cumplimiento de la LFPDPPP.
 
----
+## Documentación
 
-## 📌 Documentación de Arquitectura
+| Documento | Para qué |
+| :--- | :--- |
+| [`AGENTS.md`](AGENTS.md) | Reglas obligatorias para cualquier persona o agente de IA que escriba código aquí |
+| [`plan_fases_backend.md`](plan_fases_backend.md) | Plan de implementación por fases, con convenciones y código de referencia |
+| [`plan_backend_mayoreo_seguridad_extrema.md`](plan_backend_mayoreo_seguridad_extrema.md) | Modelo de negocio mayorista y seguridad; §9: validación y endurecimiento |
+| [`plan_backend_administrador_cotos.md`](plan_backend_administrador_cotos.md) | Visión de producto, roles, módulos y esquema original |
+| [`DESIGN.md`](DESIGN.md) | Sistema de diseño y superficies por tipo de usuario |
 
-Para consultar el diseño técnico detallado y las especificaciones de ingeniería:
+## Estructura
 
-* 📄 **[Plan Maestro del Backend](file:///e:/administradorcotos/plan_backend_administrador_cotos.md)**: Arquitectura general, esquema de base de datos de 14 dominios, catálogo de más de 100 endpoints API, sistema de auto-pago, bot self-hosted de WhatsApp (Evolution API v2) con mitigaciones anti-baneo en 5 capas, gobernanza y roadmap.
-* 📄 **[Arquitectura de Mayoreo B2B y Seguridad Extrema](file:///e:/administradorcotos/plan_backend_mayoreo_seguridad_extrema.md)**: Jerarquía multi-inquilino de 4 niveles, motor de facturación por volumen, dominios personalizados dinámicos con Cloudflare for SaaS, aprovisionamiento automatizado de WhatsApp por coto con proxies residenciales MX, cifrado de sobre (AES-256-GCM Envelope Encryption), auditoría forense inmutable encadenada y protocolo seguro IoT para caseta.
-* 📄 **[Ingeniería Inversa de CondoVive](file:///C:/Users/Angel/.gemini/antigravity/brain/ffa1d04f-3091-4dc7-a78a-fc02f79eff5c/ingenieria_inversa_condovive.md)**: Análisis de mercado, fortalezas de la competencia y brechas explotables.
-
----
-
-## 🏗️ Estructura del Proyecto (Monorepo Turborepo)
-
-```
-administradorcotos/
-├── plan_backend_administrador_cotos.md        # Documento maestro del backend (API, DB, Auto-Pay, WhatsApp)
-├── plan_backend_mayoreo_seguridad_extrema.md # Especificación B2B Mayoreo, White-label y Criptografía
-├── apps/
-│   ├── web/                    # Portal Web Next.js 15 (SuperAdmin, Despachos, Comités y Residentes)
-│   ├── mobile/                 # App Móvil React Native / Expo (Residentes)
-│   └── caseta/                 # App Kiosk para Tablets de Vigilancia en Caseta
-├── packages/
-│   ├── db/                     # Prisma ORM + Migraciones PostgreSQL con RLS
-│   ├── security/               # Criptografía (AES-256-GCM), Audit Chain y Tenant Context
-│   ├── whatsapp/               # Cliente Evolution API v2, Políticas Anti-Baneo y Proxies
-│   ├── payments/               # Motor de Cobros (Conekta, Stripe, Auto-Pay y Reintentos)
-│   ├── cfdi/                   # Timbrado SAT CFDI 4.0 con complementos de pago
-│   ├── ai/                     # OCR multimodal de comprobantes bancarios (Gemini Flash)
-│   ├── iot/                    # Protocolos MQTT/mTLS para plumas, RFID y cámaras LPR
-│   └── shared/                 # Tipos TypeScript, validadores Zod y constantes
-├── infra/
-│   └── docker-compose.whatsapp.yml # Evolution API v2 + Postgres + Redis
-├── workers/
-│   ├── autopay-scheduler/      # Worker BullMQ de cobros automáticos programados
-│   ├── notification-worker/    # Envíos masivos (WhatsApp Cloud API, Push, Email)
-│   └── ocr-worker/             # Procesamiento en cola de comprobantes de pago
-├── turbo.json                  # Configuración de compilación y pipelines
-└── .env.example                # Variables de entorno documentadas
+```text
+apps/api          API HTTP (Hono + OpenAPI). Toda consulta pasa por RLS.
+apps/worker       Colas BullMQ (auditoría hoy; cobros, CFDI, notificaciones por fase).
+apps/web · mobile · caseta   Frontends (se crean en su fase).
+packages/db       Prisma 7, migraciones con RLS, withTenant, prueba de aislamiento.
+packages/security Cifrado por campo, cadena de auditoría HMAC, firma de contexto.
+packages/shared   Contratos Zod y errores compartidos con los frontends.
+packages/whatsapp Cliente Evolution API y políticas anti-baneo.
+packages/*        storage, notifications, payments, cfdi, ai, iot: se implementan por fase.
+infra/            Docker Compose local (Postgres, Redis, Evolution).
 ```
 
----
+## Inicio rápido
 
-## 🔒 Principios de Seguridad Críticos
+Requisitos: Node.js 26 LTS (`.node-version`), npm 12 y Docker.
 
-1. **Aislamiento Multi-Tenant (PostgreSQL RLS):**  
-   Toda consulta a la base de datos se ejecuta bajo el rol `app_service` inyectando el contexto del tenant con `set_config('app.current_coto_id', ..., true)`. Ningún query puede escapar del inquilino autenticado.
-2. **Cifrado de Sobre (Envelope Encryption):**  
-   Datos fiscales (CSD del SAT) y credenciales bancarias se cifran con AES-256-GCM antes de persistirse en disco.
-3. **Auditoría Forense Inmutable:**  
-   La tabla `audit_log` utiliza un encadenamiento criptográfico con HMAC-SHA256. Cualquier alteración manual a un registro rompe la firma de los registros subsecuentes.
-4. **Cumplimiento LFPDPPP:**  
-   Prohibición absoluta de exhibir nombres de deudores en canales públicos. Consentimiento explícito para fotografías de visitantes y biométricos en caseta.
-
----
-
-## 🚀 Inicio Rápido (Desarrollo)
-
-### Prerrequisitos
-* Node.js v20+ o v22+
-* Docker Desktop (para PostgreSQL y Redis locales)
-* Cuenta de pruebas en Conekta y Supabase
-
-### Pasos
 ```bash
-# 1. Copiar archivo de entorno
-cp .env.example .env
-
-# 2. Levantar base de datos y redis locales
-docker run --name admcotos-postgres -e POSTGRES_PASSWORD=admin_password -e POSTGRES_DB=administradorcotos -p 5432:5432 -d postgres:16
-docker run --name admcotos-redis -p 6379:6379 -d redis:7
-
-# 3. Instalar dependencias
+cp .env.example .env                    # llena los secretos (cada uno trae cómo generarlo)
 npm install
-
-# 4. Generar cliente de base de datos
+docker compose -f infra/docker-compose.whatsapp.yml up -d postgres redis
+npm run db:migrate:deploy               # usa DIRECT_DATABASE_URL (rol dueño)
+# una vez, como dueño de la BD:
+#   ALTER ROLE app_service LOGIN PASSWORD '...';  ALTER ROLE app_worker LOGIN PASSWORD '...';
+#   INSERT INTO app_private.ctx_secret (secret) VALUES (decode('<DB_CTX_SECRET>', 'hex'));
 npm run db:generate
+npm run dev                             # API en http://localhost:4000 · /health/ready · /openapi.json
 ```
+
+## Comandos
+
+| Comando | Qué hace |
+| :--- | :--- |
+| `npm run check` | Biome + TypeScript 7 + todas las pruebas. Debe pasar antes de cada entrega. |
+| `npm run test:security` | Aislamiento multi-inquilino contra Postgres en memoria (sin Docker). |
+| `npm run format` | Formato y arreglos seguros. |
+| `npm run db:migrate:dev` | Crea una migración sin aplicarla (revísala: ver AGENTS.md §3.14). |
+
+## Flujo con Gemini y Claude
+
+Gemini (Antigravity) implementa y Claude Code audita: nada llega a `main` sin dictamen `APROBADO` sobre ese código exacto. Ciclo y reglas en [`AGENTS.md` §8](AGENTS.md#8-flujo-de-trabajo-gemini-implementa-claude-audita).
+
+Configuración, una vez:
+
+1. **GitHub** → *Settings › Rules* para `main`: exigir PR y los checks `check`, `migraciones-postgres` y `auditoria`.
+2. **Antigravity**: abre la raíz del repo (carga `AGENTS.md` y la skill `implementar`). *Plan Review Policy*: *Always Ask*. Permisos: preset *Default* y en *Deny* `command(git push)`, `command(git pull)`, `command(git fetch)`, `command(git merge)`, `command(gh)`. Ningún agente toca GitHub.
+3. **Claude Code**: nada; `/auditar` vive en `.claude/skills/`.
+
+## Seguridad en una línea por capa
+
+Identidad firmada por transacción → roles derivados en Postgres → RLS en todas las tablas → integridad por triggers y constraints → auditoría encadenada con HMAC → cifrado por organización → cabeceras según [modern-web-guidance](https://github.com/GoogleChrome/modern-web-guidance). Detalle en el plan de seguridad §9.

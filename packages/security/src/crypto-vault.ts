@@ -1,75 +1,80 @@
 import crypto from 'node:crypto';
 
-const ALGORITHM = 'aes-256-gcm';
-const IV_LENGTH = 12; // 96 bits para GCM
-const AUTH_TAG_LENGTH = 16; // 128 bits
-
-export interface EncryptedPayload {
-  cipherText: string; // Base64
-  iv: string;         // Base64
-  authTag: string;    // Base64
-  keyVersion: number;
+/**
+ * Cifrado de campos sensibles (CSD del SAT, CLABE, INE): AES-256-GCM.
+ *
+ * - Llave por organización derivada con HKDF de la llave maestra: un
+ *   texto cifrado de un despacho no se descifra con el contexto de otro.
+ * - AAD = "<orgId>|<contexto>" (ej. "coto_secretos.csd_key:<cotoId>"): copiar
+ *   un blob a otra fila o tenant hace fallar el descifrado.
+ * - Blob versionado: [0x01][versión llave u16][iv 12][tag 16][cifrado].
+ *   Rotar = agregar versión nueva en MASTER_KEKS y re-cifrar en segundo plano
+ *   (keyVersionOf indica qué filas faltan).
+ *
+ * ponytail: llave maestra desde env; con KMS/HSM se descifra al arrancar y el
+ * formato no cambia.
+ */
+export interface Keyring {
+  current: number;
+  keys: Map<number, Buffer>;
 }
 
-/**
- * Cifra un dato altamente sensible usando AES-256-GCM (Envelope Encryption)
- * @param plainText Texto a proteger (ej. CSD Password, CLABE)
- * @param tenantKey Llave criptográfica de 256 bits (32 bytes Buffer)
- * @param keyVersion Versión de rotación de la llave
- */
-export function encryptSensitiveField(
-  plainText: string,
-  tenantKey: Buffer,
-  keyVersion = 1
-): EncryptedPayload {
-  if (tenantKey.length !== 32) {
-    throw new Error('Seguridad crítica: La llave de cifrado debe ser exactamente de 32 bytes (256 bits).');
+const FORMAT = 1;
+const HEADER = 3;
+const IV = 12;
+const TAG = 16;
+
+/** MASTER_KEKS="1:<base64 32 bytes>,2:<base64 32 bytes>" — la versión más alta cifra. */
+export function keyringFromEnv(value = process.env.MASTER_KEKS ?? ''): Keyring {
+  const keys = new Map<number, Buffer>();
+  for (const part of value
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)) {
+    const sep = part.indexOf(':');
+    const version = Number(part.slice(0, sep));
+    const key = Buffer.from(part.slice(sep + 1), 'base64');
+    if (!Number.isInteger(version) || version < 1 || version > 0xffff) throw new Error('MASTER_KEKS: versión inválida');
+    if (key.length !== 32) throw new Error(`MASTER_KEKS: la llave v${version} debe ser de 32 bytes`);
+    keys.set(version, key);
   }
+  if (keys.size === 0) throw new Error('MASTER_KEKS vacío: no hay llave maestra');
+  return { current: Math.max(...keys.keys()), keys };
+}
 
-  const iv = crypto.randomBytes(IV_LENGTH);
-  const cipher = crypto.createCipheriv(ALGORITHM, tenantKey, iv, {
-    authTagLength: AUTH_TAG_LENGTH,
-  });
+function orgKey(master: Buffer, orgId: string): Buffer {
+  return Buffer.from(crypto.hkdfSync('sha256', master, Buffer.from(orgId, 'utf8'), 'admcotos/campo/v1', 32));
+}
 
-  const encrypted = Buffer.concat([
-    cipher.update(plainText, 'utf8'),
+const aad = (orgId: string, context: string) => Buffer.from(`${orgId}|${context}`, 'utf8');
+
+export function encryptField(data: Buffer | string, orgId: string, context: string, ring: Keyring): Buffer {
+  const master = ring.keys.get(ring.current);
+  if (!master) throw new Error(`Llave maestra v${ring.current} no disponible`);
+  const iv = crypto.randomBytes(IV);
+  const cipher = crypto.createCipheriv('aes-256-gcm', orgKey(master, orgId), iv, { authTagLength: TAG });
+  cipher.setAAD(aad(orgId, context));
+  const body = Buffer.concat([
+    cipher.update(typeof data === 'string' ? Buffer.from(data, 'utf8') : data),
     cipher.final(),
   ]);
-
-  const authTag = cipher.getAuthTag();
-
-  return {
-    cipherText: encrypted.toString('base64'),
-    iv: iv.toString('base64'),
-    authTag: authTag.toString('base64'),
-    keyVersion,
-  };
+  const header = Buffer.alloc(HEADER);
+  header.writeUInt8(FORMAT, 0);
+  header.writeUInt16BE(ring.current, 1);
+  return Buffer.concat([header, iv, cipher.getAuthTag(), body]);
 }
 
-/**
- * Descifra y valida la integridad de un payload cifrado con AES-256-GCM
- */
-export function decryptSensitiveField(
-  payload: EncryptedPayload,
-  tenantKey: Buffer
-): string {
-  if (tenantKey.length !== 32) {
-    throw new Error('Seguridad crítica: La llave de cifrado debe ser exactamente de 32 bytes (256 bits).');
-  }
-
-  const decipher = crypto.createDecipheriv(
-    ALGORITHM,
-    tenantKey,
-    Buffer.from(payload.iv, 'base64'),
-    { authTagLength: AUTH_TAG_LENGTH }
-  );
-
-  decipher.setAuthTag(Buffer.from(payload.authTag, 'base64'));
-
-  const decrypted = Buffer.concat([
-    decipher.update(Buffer.from(payload.cipherText, 'base64')),
-    decipher.final(),
-  ]);
-
-  return decrypted.toString('utf8');
+export function decryptField(blob: Buffer, orgId: string, context: string, ring: Keyring): Buffer {
+  if (blob.length < HEADER + IV + TAG || blob[0] !== FORMAT) throw new Error('Formato de cifrado desconocido');
+  const version = blob.readUInt16BE(1);
+  const master = ring.keys.get(version);
+  if (!master) throw new Error(`Llave maestra v${version} no disponible`);
+  const decipher = crypto.createDecipheriv('aes-256-gcm', orgKey(master, orgId), blob.subarray(HEADER, HEADER + IV), {
+    authTagLength: TAG,
+  });
+  decipher.setAAD(aad(orgId, context));
+  decipher.setAuthTag(blob.subarray(HEADER + IV, HEADER + IV + TAG));
+  return Buffer.concat([decipher.update(blob.subarray(HEADER + IV + TAG)), decipher.final()]);
 }
+
+export const keyVersionOf = (blob: Buffer): number => blob.readUInt16BE(1);

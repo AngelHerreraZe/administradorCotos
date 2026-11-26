@@ -2,15 +2,11 @@
   "name": "@admcotos/whatsapp",
   "version": "1.0.0",
   "private": true,
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "scripts": {
-    "build": "tsc",
-    "test": "vitest run"
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
   },
-  "dependencies": {},
-  "devDependencies": {
-    "typescript": "^5.7.0",
-    "vitest": "^3.0.0"
+  "scripts": {
+    "typecheck": "tsc -p ."
   }
 }

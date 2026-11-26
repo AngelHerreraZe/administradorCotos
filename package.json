@@ -2,25 +2,37 @@
   "name": "administradorcotos",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "description": "Plataforma SaaS Multi-Tenant para Administración de Condominios y Cotos (B2B Mayoreo)",
   "workspaces": [
     "apps/*",
-    "packages/*",
-    "workers/*"
+    "packages/*"
   ],
   "scripts": {
-    "build": "turbo run build",
     "dev": "turbo run dev",
-    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "lint": "biome check .",
+    "format": "biome check --write .",
     "test": "turbo run test",
     "test:security": "turbo run test:security",
-    "db:generate": "turbo run db:generate",
-    "db:migrate": "turbo run db:migrate",
-    "db:push": "turbo run db:push"
+    "test:e2e": "npm run test:e2e -w @admcotos/api",
+    "check": "biome ci . && turbo run typecheck test",
+    "db:generate": "npm run generate -w @admcotos/db",
+    "db:migrate:dev": "npm run migrate:dev -w @admcotos/db",
+    "db:migrate:deploy": "npm run migrate:deploy -w @admcotos/db"
   },
   "devDependencies": {
-    "turbo": "^2.4.0",
-    "typescript": "^5.7.0"
+    "@biomejs/biome": "2.6.9",
+    "@types/node": "26.6.11",
+    "turbo": "2.11.13",
+    "typescript": "7.0.2",
+    "vitest": "5.1.2"
   },
-  "packageManager": "npm@11.20.0"
+  "overrides": {
+    "effect": "3.22.5"
+  },
+  "engines": {
+    "node": ">=26.12.1"
+  },
+  "packageManager": "npm@12.2.3"
 }

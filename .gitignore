@@ -44,6 +44,8 @@ out/
 !.next/cache/
 *.tsbuildinfo
 .turbo/
+# Cliente Prisma generado (npm run db:generate)
+**/src/generated/
 
 # --- EXPO / REACT NATIVE (APPS MÓVILES) ---
 .expo/
@@ -127,6 +129,9 @@ $RECYCLE.BIN/
 !.vscode/launch.json
 !.vscode/extensions.json
 *.code-workspace
+
+# Agentes de IA: permisos locales de cada persona (las skills sí se versionan)
+.claude/settings.local.json
 
 # JetBrains (WebStorm, IntelliJ, PhpStorm)
 .idea/

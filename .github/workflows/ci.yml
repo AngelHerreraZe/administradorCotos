@@ -1,0 +1,114 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Mínimo privilegio: el token del workflow solo lee el repo.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: npm install -g npm@12.2.3
+      # npm ci respeta el lockfile; los scripts de instalación siguen bloqueados (allowScripts).
+      - run: npm ci
+      - run: npm audit --audit-level=high --omit=dev
+      - run: npm run db:generate
+      # biome ci + typecheck (TS 7) + pruebas, incluida la suite RLS contra Postgres (PGlite, sin Docker)
+      - run: npm run check
+
+  migraciones-postgres:
+    # La suite RLS corre en PGlite; aquí se aplican las migraciones a un Postgres real del mismo major que producción.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: administradorcotos
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DIRECT_DATABASE_URL: postgresql://postgres:ci@localhost:5432/administradorcotos
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: npm install -g npm@12.2.3
+      - run: npm ci
+      - run: npm run db:migrate:deploy
+
+  e2e:
+    # Pruebas HTTP de extremo a extremo contra Postgres 17 real (rol app_service, JWT ES256 local).
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: administradorcotos
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      TEST_DIRECT_DATABASE_URL: postgresql://postgres:ci@localhost:5432/administradorcotos
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: npm install -g npm@12.2.3
+      - run: npm ci
+      - run: npm run db:generate
+      - run: npm run test:e2e
+
+  auditoria:
+    # Flujo Gemini → Claude (AGENTS.md §8): el código del PR es exactamente el que Claude aprobó.
+    # Dependabot (minor/patch) queda fuera; un job omitido cuenta como éxito en los checks requeridos.
+    if: github.event_name == 'pull_request' && github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Dictamen APROBADO sobre el código actual
+        env:
+          RAMA: ${{ github.head_ref }} # por env, nunca interpolado en el script
+        run: |
+          dictamen="auditorias/${RAMA//\//-}/dictamen.md"
+          falla() { echo "::error::$1"; exit 1; }
+          [ -f "$dictamen" ] || falla "Falta $dictamen: ejecuta /auditar en Claude Code."
+          grep -qE '^Veredicto: APROBADO\s*$' "$dictamen" || falla "$dictamen no está APROBADO."
+          sha=$(sed -nE 's/^Commit auditado: ([0-9a-f]{40})\s*$/\1/p' "$dictamen")
+          [ -n "$sha" ] && git cat-file -e "$sha^{commit}" 2>/dev/null || falla "El commit auditado no existe en esta rama."
+          cambios=$(git diff --name-only "$sha" HEAD -- . ':(exclude)auditorias')
+          [ -z "$cambios" ] || falla "Hay cambios posteriores a la auditoría; ejecuta /auditar de nuevo: $(echo "$cambios" | tr '\n' ' ')"

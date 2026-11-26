@@ -31,7 +31,7 @@ export class EvolutionApiClient {
     const url = `${this.baseUrl}${endpoint}`;
     const headers = {
       'Content-Type': 'application/json',
-      'apikey': this.apiKey,
+      apikey: this.apiKey,
       ...options.headers,
     };
 
@@ -83,10 +83,9 @@ export class EvolutionApiClient {
    * Obtiene el código QR para vincular el número del coto
    */
   async getQrCode(instanceName: string) {
-    return this.request<{ qrcode: { base64: string; code: string } }>(
-      `/instance/connect/${instanceName}`,
-      { method: 'GET' }
-    );
+    return this.request<{ qrcode: { base64: string; code: string } }>(`/instance/connect/${instanceName}`, {
+      method: 'GET',
+    });
   }
 
   /**
@@ -135,12 +134,14 @@ export class EvolutionApiClient {
       method: 'POST',
       body: JSON.stringify({
         number,
-        contact: [{
-          fullName: `Administración ${cotoNombre}`,
-          wuid: cotoTelefono,
-          phoneNumber: cotoTelefono,
-          vcard,
-        }],
+        contact: [
+          {
+            fullName: `Administración ${cotoNombre}`,
+            wuid: cotoTelefono,
+            phoneNumber: cotoTelefono,
+            vcard,
+          },
+        ],
       }),
     });
   }

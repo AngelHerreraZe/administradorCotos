@@ -2,19 +2,25 @@
   "name": "@admcotos/db",
   "version": "1.0.0",
   "private": true,
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "scripts": {
-    "build": "tsc",
-    "db:generate": "prisma generate",
-    "db:migrate": "prisma migrate dev",
-    "db:push": "prisma db push"
+    "generate": "prisma generate",
+    "migrate:dev": "prisma migrate dev --create-only",
+    "migrate:deploy": "prisma migrate deploy",
+    "typecheck": "tsc -p .",
+    "test": "vitest run",
+    "test:security": "vitest run test/rls.test.ts"
   },
   "dependencies": {
-    "@prisma/client": "^6.4.0"
+    "@admcotos/security": "*",
+    "@prisma/adapter-pg": "7.10.1",
+    "@prisma/client": "7.10.1"
   },
   "devDependencies": {
-    "prisma": "^6.4.0",
-    "typescript": "^5.7.0"
+    "@electric-sql/pglite": "0.6.0",
+    "prisma": "7.10.1"
   }
 }

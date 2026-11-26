@@ -243,55 +243,23 @@ Leyenda: C=Create, R=Read, U=Update, D=Delete, own=solo sus registros, —=sin a
 ### 4.3 Implementación RLS Multi-Tenant
 
 > [!IMPORTANT]
-> **REGLA CRÍTICA:** Nunca usar `SET` para inyectar tenant context. Siempre usar `SET LOCAL` o `set_config(..., true)` dentro de una transacción para evitar fugas de contexto en connection pooling.
+> **Fuente de verdad:** [`packages/db/prisma/migrations/20261126000100_seguridad_rls/migration.sql`](packages/db/prisma/migrations/20261126000100_seguridad_rls/migration.sql), verificada por [`packages/db/test/rls.test.mjs`](packages/db/test/rls.test.mjs) (14 escenarios contra Postgres real). El diseño anterior de esta sección tenía fallas graves; ver [validación v1.1](plan_backend_mayoreo_seguridad_extrema.md#9-validación-y-endurecimiento-v11).
+
+Reglas del modelo:
+
+1. **La BD solo confía en la identidad, y firmada.** La API fija por transacción `app.ctx = "<usuario>.<expira>.<hmac>"`; `app.uid()` valida la firma con un secreto que la API conoce pero `app_service` no puede leer. Una inyección SQL no puede hacerse pasar por otro usuario.
+2. **Los roles se derivan de la BD en cada consulta** (`miembros_coto`, `org_miembros`, `soporte_accesos`), nunca del JWT ni de un GUC que fije la app. Dar de baja a alguien surte efecto en la siguiente consulta.
+3. **`app.coto_id` solo acota** (política `RESTRICTIVE`); jamás amplía. Un header `x-coto-id` manipulado no da acceso a nada.
+4. **Funciones de permisos evaluadas una vez por consulta**: `coto_id = ANY ((SELECT app.cotos_staff())::uuid[])` se vuelve InitPlan y usa el índice por `coto_id`.
+5. **Sin contexto, firma inválida o expirada: cero filas** (falla cerrado).
 
 ```sql
--- ═══════════════════════════════════════════════════════════
--- INFRAESTRUCTURA DE AISLAMIENTO MULTI-TENANT
--- ═══════════════════════════════════════════════════════════
-
--- 1. Rol de aplicación SIN privilegios de owner
-CREATE ROLE app_service NOLOGIN;
-COMMENT ON ROLE app_service IS 'Rol restringido para la app. No es owner de tablas. RLS se aplica.';
-
--- 2. Función helper para extraer tenant del JWT de Supabase
-CREATE OR REPLACE FUNCTION current_org_id() RETURNS UUID AS $$
-  SELECT NULLIF(current_setting('app.current_org_id', true), '')::UUID;
-$$ LANGUAGE SQL STABLE SECURITY DEFINER;
-
-CREATE OR REPLACE FUNCTION current_coto_id() RETURNS UUID AS $$
-  SELECT NULLIF(current_setting('app.current_coto_id', true), '')::UUID;
-$$ LANGUAGE SQL STABLE SECURITY DEFINER;
-
-CREATE OR REPLACE FUNCTION current_user_role() RETURNS TEXT AS $$
-  SELECT NULLIF(current_setting('app.current_user_role', true), '');
-$$ LANGUAGE SQL STABLE SECURITY DEFINER;
-
--- 3. Política RESTRICTIVE en tabla de cargos (ejemplo)
-ALTER TABLE cargos ENABLE ROW LEVEL SECURITY;
-ALTER TABLE cargos FORCE ROW LEVEL SECURITY;
-
-CREATE POLICY "tenant_isolation" ON cargos
-  AS RESTRICTIVE
-  FOR ALL
-  USING (coto_id = current_coto_id())
-  WITH CHECK (coto_id = current_coto_id());
-
--- Los residentes solo ven sus propios cargos
-CREATE POLICY "residente_own_cargos" ON cargos
-  AS PERMISSIVE
-  FOR SELECT
-  USING (
-    current_user_role() IN ('coto_admin', 'coto_tesorero', 'coto_comite', 'org_owner', 'org_admin', 'platform_admin')
-    OR (
-      current_user_role() IN ('residente_propietario', 'residente_inquilino')
-      AND unidad_id IN (
-        SELECT unidad_id FROM miembros_coto
-        WHERE usuario_id = auth.uid()
-        AND coto_id = current_coto_id()
-      )
-    )
-  );
+-- Ejemplo real: cargos
+CREATE POLICY sel ON cargos FOR SELECT TO app_service
+  USING (coto_id = ANY ((SELECT app.cotos_finanzas())::uuid[])          -- admin, tesorería, despacho, soporte con ventana
+      OR unidad_id = ANY ((SELECT app.unidades_propias())::uuid[]));    -- el propietario, solo su unidad
+CREATE POLICY ins ON cargos FOR INSERT TO app_service
+  WITH CHECK (coto_id = ANY ((SELECT app.cotos_admin())::uuid[]));       -- y el despacho al corriente
 ```
 
 ### 4.4 Middleware de Seguridad (Pipeline de Request)
@@ -325,62 +293,30 @@ export const securityPipeline = [
   auditLogRequest,
 ];
 
-// Inyección de contexto en cada transacción PostgreSQL
-async function injectPostgresTenantContext(req, res, next) {
-  const { orgId, cotoId, userId, role } = req.auth;
-  
-  // SIEMPRE usar set_config con is_local = true (3er parámetro)
-  // Esto limita el scope a la transacción actual y previene
-  // fugas de contexto en connection pooling (PgBouncer)
-  await db.$executeRaw`
-    SELECT 
-      set_config('app.current_org_id', ${orgId}, true),
-      set_config('app.current_coto_id', ${cotoId}, true),
-      set_config('app.current_user_id', ${userId}, true),
-      set_config('app.current_user_role', ${role}, true)
-  `;
-  
-  next();
-}
+// ❌ El middleware anterior llamaba set_config(..., true) FUERA de una transacción:
+//    el contexto moría al terminar esa misma sentencia y las consultas siguientes
+//    corrían sin tenant. Además confiaba el rol a la app.
+//
+// ✅ Toda consulta de la API pasa por withTenant (packages/db/src/index.ts):
+import { withTenant, assertRestrictedRole } from '@admcotos/db';
+
+await assertRestrictedRole(prisma); // al arrancar: aborta si el rol puede saltarse RLS
+
+const estado = await withTenant(prisma, { userId: req.auth.userId, cotoId: params.cotoId, requestId }, (tx) =>
+  tx.$queryRaw`SELECT * FROM app.estado_cuenta(${params.unidadId}::uuid)`,
+);
 ```
 
 ### 4.5 Audit Log Inmutable
 
-Cada acción sensible genera un registro de auditoría que **nunca se elimina ni modifica**:
+Cada acción sensible genera un registro de auditoría que **nunca se elimina ni modifica**. Flujo (v1.1):
 
-```sql
-CREATE TABLE audit_log (
-    id              BIGSERIAL PRIMARY KEY,
-    -- Contexto
-    org_id          UUID NOT NULL,
-    coto_id         UUID,
-    usuario_id      UUID NOT NULL,
-    usuario_email   TEXT NOT NULL,
-    usuario_rol     VARCHAR(30) NOT NULL,
-    -- Acción
-    accion          VARCHAR(50) NOT NULL,  -- 'pago.crear', 'usuario.eliminar', etc.
-    recurso_tipo    VARCHAR(50) NOT NULL,  -- 'cargo', 'pago', 'usuario', etc.
-    recurso_id      UUID,
-    -- Datos
-    datos_antes     JSONB,  -- Estado previo (para updates/deletes)
-    datos_despues   JSONB,  -- Estado nuevo (para creates/updates)
-    metadata        JSONB,  -- IP, User-Agent, coordenadas GPS si aplica
-    -- Inmutabilidad
-    created_at      TIMESTAMPTZ DEFAULT NOW() NOT NULL,
-    -- Hash de integridad (SHA-256 del registro anterior + este)
-    hash_integridad VARCHAR(64) NOT NULL
-);
+1. **Triggers en 19 tablas sensibles** (pagos, cargos, cuentas bancarias, membresías, organizaciones…) escriben en `audit_outbox` **dentro de la misma transacción** del cambio. Auditar no depende de que el desarrollador se acuerde.
+2. **Un worker único** (`drainAuditOutbox`, rol `app_worker`) encadena el outbox hacia `audit_log` con HMAC-SHA256 **por organización** (sin cuello de botella global). La llave HMAC vive solo en ese worker: ni la API ni la BD pueden recalcular hashes.
+3. `audit_log`, `votos`, `registros_acceso` y `detalle_pagos` tienen triggers que bloquean `UPDATE`, `DELETE` y `TRUNCATE` **incluso al dueño de las tablas**.
+4. `audit_log` no tiene FKs ni correo del usuario: sobrevive a cualquier borrado y no bloquea derechos ARCO.
 
--- Tabla append-only: nadie puede UPDATE ni DELETE
-REVOKE UPDATE, DELETE ON audit_log FROM app_service;
-REVOKE UPDATE, DELETE ON audit_log FROM PUBLIC;
-
--- Índices para consultas de auditoría
-CREATE INDEX idx_audit_org ON audit_log(org_id, created_at DESC);
-CREATE INDEX idx_audit_coto ON audit_log(coto_id, created_at DESC);
-CREATE INDEX idx_audit_usuario ON audit_log(usuario_id, created_at DESC);
-CREATE INDEX idx_audit_accion ON audit_log(accion, created_at DESC);
-```
+Esquema en [`schema.prisma`](packages/db/prisma/schema.prisma) (`AuditOutbox`, `AuditLog`, `AuditChainHead`).
 
 ### 4.6 Encriptación y Manejo de Secretos
 
@@ -398,7 +334,9 @@ CREATE INDEX idx_audit_accion ON audit_log(accion, created_at DESC);
 ## 5. Esquema de Base de Datos Completo
 
 > [!NOTE]
-> Esquema PostgreSQL 16 con extensiones: `uuid-ossp`, `pgcrypto`, `citext`. Todas las tablas con `coto_id` tienen RLS activo y forzado.
+> Esquema PostgreSQL 16 con extensiones: `uuid-ossp`, `pgcrypto`, `citext`, `btree_gist`. **Todas** las tablas de negocio tienen RLS activo (la prueba de CI falla si una tabla nueva no lo tiene).
+>
+> **Fuente de verdad:** [`schema.prisma`](packages/db/prisma/schema.prisma) + [`migrations/`](packages/db/prisma/migrations/). El DDL de esta sección es el diseño original y quedó como referencia de negocio; donde difiera, manda el esquema.
 
 ### 5.1 Diagrama ER Maestro
 
@@ -1191,31 +1129,12 @@ CREATE TABLE votos (
 );
 ```
 
-### 5.3 Habilitar RLS en Todas las Tablas con `coto_id`
+### 5.3 Habilitar RLS en Todas las Tablas
 
-```sql
--- Script de activación masiva de RLS
-DO $$
-DECLARE
-    tbl TEXT;
-BEGIN
-    FOR tbl IN 
-        SELECT table_name FROM information_schema.columns 
-        WHERE column_name = 'coto_id' 
-        AND table_schema = 'public'
-    LOOP
-        EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', tbl);
-        EXECUTE format('ALTER TABLE %I FORCE ROW LEVEL SECURITY', tbl);
-        EXECUTE format(
-            'CREATE POLICY tenant_isolation_%I ON %I AS RESTRICTIVE FOR ALL 
-             USING (coto_id = current_coto_id()) 
-             WITH CHECK (coto_id = current_coto_id())',
-            tbl, tbl
-        );
-        RAISE NOTICE 'RLS enabled on: %', tbl;
-    END LOOP;
-END $$;
-```
+> [!CAUTION]
+> El script masivo original creaba **solo políticas `RESTRICTIVE`**. En PostgreSQL, sin al menos una política `PERMISSIVE` no pasa ninguna fila: habría bloqueado toda la aplicación. Además omitía las tablas sin `coto_id` (`organizaciones`, `usuarios`, `org_miembros`, `partner_api_keys`, `detalle_pagos`, `ticket_comentarios`, `opciones_voto`…) y no limitaba columnas ni privilegios.
+
+La migración [`seguridad_rls`](packages/db/prisma/migrations/20261126000100_seguridad_rls/migration.sql) activa RLS en **todas** las tablas, define políticas `PERMISSIVE` explícitas por tabla y operación, una `RESTRICTIVE` de acotamiento por coto, privilegios mínimos (sin `DELETE` en nada de negocio, `UPDATE` por columna en `usuarios` y `organizaciones`) y bloquea por trigger las referencias a filas de otro coto (las FKs ignoran RLS).
 
 ---
 
@@ -1417,23 +1336,20 @@ export async function POST(req: Request) {
   
   const event = JSON.parse(body);
   
-  // 2. IDEMPOTENCIA — Verificar si ya procesamos este evento
-  const existing = await db.webhookEvents.findUnique({
-    where: { event_id: event.data.object.id }
+  // 2. IDEMPOTENCIA ATÓMICA — insertar primero; el UNIQUE (proveedor, event_id) decide.
+  //    (Buscar y luego crear deja pasar dos entregas simultáneas del mismo evento.)
+  //    createMany no usa RETURNING: la API puede insertar sin poder leer payloads.
+  const { count } = await prisma.webhookEvent.createMany({
+    data: [{ proveedor: 'conekta', eventId: event.id, tipo: event.type, payload: event }],
+    skipDuplicates: true,
   });
-  if (existing) {
+  if (count === 0) {
     return Response.json({ status: 'already_processed' }, { status: 200 });
   }
   
-  // 3. GUARDAR evento y encolar procesamiento
-  await db.webhookEvents.create({
-    data: { event_id: event.data.object.id, type: event.type, payload: event }
-  });
-  
-  await paymentQueue.add('process-payment-webhook', {
-    eventId: event.data.object.id,
-    type: event.type,
-  });
+  // 3. ENCOLAR (jobId = event.id: BullMQ también descarta duplicados).
+  //    El worker (app_worker) confirma el pago y llama app.aplicar_pago(), que es idempotente.
+  await paymentQueue.add('process-payment-webhook', { eventId: event.id }, { jobId: `conekta:${event.id}` });
   
   // 4. Responder 200 INMEDIATAMENTE (Conekta espera <5s)
   return Response.json({ status: 'queued' }, { status: 200 });
@@ -1775,6 +1691,9 @@ graph TD
 ```
 
 ### 10.2 Estructura del Monorepo
+
+> [!IMPORTANT]
+> **Actualizado (v1.1):** la estructura vigente, el stack con versiones y la decisión de mover la API a un servicio propio (`apps/api`, Hono) están en [`plan_fases_backend.md` §1](plan_fases_backend.md#1-arquitectura-de-referencia). El árbol de abajo es el diseño original.
 
 ```
 administradorcotos/
