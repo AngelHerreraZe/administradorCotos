@@ -28,9 +28,11 @@ describe('worker correo', () => {
         },
       },
     );
+    const keys: (string | undefined)[] = [];
     const transport = {
       emails: {
-        async send() {
+        async send(_payload: unknown, options?: { idempotencyKey?: string }) {
+          keys.push(options?.idempotencyKey);
           return { data: { id: 'msg_1' }, error: null };
         },
       },
@@ -42,7 +44,7 @@ describe('worker correo', () => {
     ).rejects.toThrow();
 
     const res = await fn({
-      id: 'j2',
+      id: 'inv:123',
       data: {
         plantilla: 'invitacion',
         para: 'persona.secreta@ejemplo.mx',
@@ -50,6 +52,7 @@ describe('worker correo', () => {
       },
     });
     expect(res).toEqual({ id: 'msg_1' });
+    expect(keys).toEqual(['inv:123']);
     expect(JSON.stringify(logs)).not.toContain('persona.secreta@ejemplo.mx');
   });
 });

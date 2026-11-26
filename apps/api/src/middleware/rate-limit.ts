@@ -65,12 +65,13 @@ export function resolverIpCliente(c: Context<AppEnv>): string {
 }
 
 export interface RedisRateClient {
+  status?: string;
   defineCommand?: (name: string, definition: { numberOfKeys: number; lua: string }) => void;
 }
 
 /**
- * Construye un LimitadorTasa respaldado por RateLimiterRedis.
- * Reutiliza instancias por (prefijo, puntos, duracionSegundos) para registrar el comando Lua una vez por prefijo.
+ * Construye un LimitadorTasa respaldado por RateLimiterRedis con `rejectIfRedisNotReady: true`
+ * para fallar de inmediato (sin colas offline) cuando Redis no está listo.
  */
 export function crearLimitadorTasa(redis: RedisRateClient): LimitadorTasa {
   const instancias = new Map<string, RateLimiterRedis>();
@@ -84,6 +85,7 @@ export function crearLimitadorTasa(redis: RedisRateClient): LimitadorTasa {
         keyPrefix: prefijo,
         points: puntos,
         duration: duracionSegundos,
+        rejectIfRedisNotReady: true,
       });
       instancias.set(id, rl);
     }
@@ -98,7 +100,7 @@ export function crearLimitadorTasa(redis: RedisRateClient): LimitadorTasa {
   };
 }
 
-function manejarExceso(c: Context<AppEnv>, err: unknown, falloCerrado: boolean): boolean {
+function manejarFallo(c: Context<AppEnv>, err: unknown, falloCerrado: boolean): void {
   if (err instanceof RateLimiterRes) {
     const retryAfter = Math.max(1, Math.ceil(err.msBeforeNext / 1000));
     c.header('Retry-After', String(retryAfter));
@@ -108,11 +110,10 @@ function manejarExceso(c: Context<AppEnv>, err: unknown, falloCerrado: boolean):
   if (falloCerrado) {
     throw new AppError(503, 'servicio_no_disponible', 'Servicio temporalmente no disponible');
   }
-  return false;
 }
 
-/** Límite general autenticado: 300 req/min por usuario y 600 req/min por IP (falla abierto en API general). */
-export function limiteTasaGeneral(
+/** Límite por IP (600 req/min): corre antes de autenticar para proteger la BD de tokens sin cuenta. */
+export function limiteTasaPorIp(
   limitador: LimitadorTasa,
   opts: { falloCerrado?: boolean; obtenerIp?: (c: Context<AppEnv>) => string } = {},
 ): MiddlewareHandler<AppEnv> {
@@ -120,20 +121,34 @@ export function limiteTasaGeneral(
   const falloCerrado = opts.falloCerrado ?? false;
 
   return async (c, next) => {
+    const ip = resolverIp(c);
+    try {
+      await limitador.consumir(ip, 600, 60, 'rl:ip');
+    } catch (err) {
+      manejarFallo(c, err, falloCerrado);
+    }
+    await next();
+  };
+}
+
+/** Límite por usuario autenticado (300 req/min). */
+export function limiteTasaPorUsuario(
+  limitador: LimitadorTasa,
+  opts: { falloCerrado?: boolean } = {},
+): MiddlewareHandler<AppEnv> {
+  const falloCerrado = opts.falloCerrado ?? false;
+
+  return async (c, next) => {
     const auth = c.get('auth') as { usuarioId: string } | undefined;
     const authPre = c.get('authPre') as { authId: string } | undefined;
     const sujeto = auth?.usuarioId ?? authPre?.authId;
-    const ip = resolverIp(c);
-
-    try {
-      await limitador.consumir(ip, 600, 60, 'rl:ip');
-      if (sujeto) {
+    if (sujeto) {
+      try {
         await limitador.consumir(sujeto, 300, 60, 'rl:u');
+      } catch (err) {
+        manejarFallo(c, err, falloCerrado);
       }
-    } catch (err) {
-      manejarExceso(c, err, falloCerrado);
     }
-
     await next();
   };
 }
@@ -151,7 +166,7 @@ export function limiteTasaEstricto(
     try {
       await limitador.consumir(clave, opts.puntos, opts.duracionSegundos, opts.prefijo);
     } catch (err) {
-      manejarExceso(c, err, falloCerrado);
+      manejarFallo(c, err, falloCerrado);
     }
     await next();
   };

@@ -97,7 +97,8 @@ export function unidadesRoutes(deps: Pick<Deps, 'prisma'>) {
       const stream = c.req.raw.body
         ? Readable.fromWeb(c.req.raw.body as Parameters<typeof Readable.fromWeb>[0])
         : Readable.from([await c.req.text()]);
-      const res = await conTenant(c, deps, cotoId, (tx) => servicio.importarCsv(tx, cotoId, stream));
+      const parsed = await servicio.parsearCsvUnidades(stream);
+      const res = await conTenant(c, deps, cotoId, (tx) => servicio.importar(tx, cotoId, parsed));
       return c.json(res, 201);
     });
 }

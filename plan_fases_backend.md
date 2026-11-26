@@ -579,18 +579,18 @@ LANGUAGE sql STABLE AS $$ /* INVOKER: miembros_coto ⋈ cotos ⋈ unidades filtr
 | :--- | :--- | :--- | :--- |
 | GET | `/api/v1/me` | autenticado | `usuarios` propio + `app.mis_membresias()` |
 | PATCH | `/api/v1/me` | autenticado | Solo columnas con `GRANT UPDATE` (nombre, teléfono, aviso de privacidad) |
-| POST | `/api/v1/invitaciones/aceptar` | autenticado (correo verificado en el JWT) | `{ token }` → `app.aceptar_invitacion(sha256(token), sub, email, …)` |
+| POST | `/api/v1/invitaciones/aceptar` | autenticado (Confirm email activo en Supabase Auth) | `{ token }` → `app.aceptar_invitacion(sha256(token), sub, email, …)` |
 | GET · PATCH | `/api/v1/orgs/{orgId}` | `orgs_lectura` · `orgs_owner` | PATCH solo marca/contacto; billing no |
 | GET | `/api/v1/orgs/{orgId}/cotos` | `orgs_lectura` | Incluye `app.resumen_cotos(p_org => orgId)` |
-| POST | `/api/v1/orgs/{orgId}/cotos` | `orgs_admin` | Valida límite de cotos del plan en servicio |
+| POST | `/api/v1/orgs/{orgId}/cotos` | `orgs_admin` | Sin tope de cotos por tier (cobro B2B por unidades activas) |
 | GET · PATCH | `/api/v1/cotos/{cotoId}` | `cotos_miembro` · `cotos_admin` | |
 | GET · POST · PATCH | `/api/v1/cotos/{cotoId}/sectores[/{id}]` | `cotos_miembro` · `cotos_admin` | |
 | GET · POST · PATCH | `/api/v1/cotos/{cotoId}/unidades[/{id}]` | staff/caseta/propia · `cotos_admin` | Plantilla §3.1 |
 | POST | `/api/v1/cotos/{cotoId}/unidades/importar` | `cotos_admin` | CSV ≤ 5 000 filas, `csv-parse` en streaming, valida todo antes de insertar, inserta en una transacción, reporta errores por fila |
-| GET · PATCH | `/api/v1/cotos/{cotoId}/miembros[/{id}]` | `cotos_staff` · `cotos_admin` | Directorio desde `miembros_coto ⋈ usuarios` (nunca `SELECT` libre sobre `usuarios`) |
-| POST · GET | `/api/v1/cotos/{cotoId}/invitaciones` | `cotos_admin` | Genera token (32 bytes `base64url`), guarda hash, encola correo |
+| GET · PATCH | `/api/v1/cotos/{cotoId}/miembros[/{id}]` | `cotos_staff` · `cotos_admin` | Solo activos desde `miembros_coto ⋈ usuarios`; `coto_comite` no recibe email/teléfono |
+| POST · GET | `/api/v1/cotos/{cotoId}/invitaciones` | `cotos_admin` | Genera token (32 bytes `base64url`), guarda hash, encola correo; soporta `Idempotency-Key` |
 | POST | `/api/v1/invitaciones/{id}/revocar` | `cotos_admin` | |
-| POST | `/api/v1/orgs/{orgId}/soporte` | `orgs_owner` | Abre ventana de soporte (≤ 72 h) |
+| POST | `/api/v1/orgs/{orgId}/soporte` | `orgs_owner` | Abre ventana de soporte (≤ 72 h); soporta `Idempotency-Key` |
 
 Antes de diseñar el correo de invitación: `npx modern-web-guidance@latest retrieve verify-email-ownership`.
 
@@ -609,7 +609,7 @@ Agregar el job `e2e` al CI (mismo patrón que `migraciones-postgres`).
 ### Terminado cuando
 
 - [ ] Migración aplicada en Postgres 17 real (pendiente de CI `migraciones-postgres`; pruebas SQL en PGlite en verde).
-- [x] Todos los endpoints de 1.3 con sus pruebas (feliz, 422, 403 por coto y por rol).
+- [x] Todos los endpoints de 1.3 con sus pruebas (feliz, 422, 403 por coto, por rol e idempotencia).
 - [ ] E2E en CI en verde (suite escrita en `apps/api/test/e2e/`; pendiente de correr contra Postgres 17 en CI / Docker).
 - [x] OpenAPI publicado en desarrollo con todos los esquemas.
 

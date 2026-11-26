@@ -1,4 +1,4 @@
-import { type AalLevel, assertUuid, calculateAuditHash, signDbContext } from '@admcotos/security';
+import { type AalLevel, assertUuid, calculateAuditHash, signDbContext, signPreAuthContext } from '@admcotos/security';
 import type { Prisma, PrismaClient } from './generated/prisma/client.ts';
 
 export { createPrisma, type DbOptions } from './client.ts';
@@ -9,6 +9,12 @@ export interface DbContext {
   aal?: AalLevel; // nivel de autenticación del JWT ('aal1' | 'aal2')
   cotoId?: string | null; // acota la vista a un coto (opcional, solo restringe)
   requestId?: string; // viaja a la metadata de auditoría
+}
+
+export interface PreAuthDbContext {
+  authId: string;
+  aal?: AalLevel;
+  requestId?: string;
 }
 
 let ctxSecret: Buffer | undefined;
@@ -38,6 +44,21 @@ export function withTenant<T>(
   const req = (ctx.requestId ?? '').slice(0, 100);
   return prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT set_config('app.ctx', ${firma}, true), set_config('app.coto_id', ${coto}, true), set_config('app.req', ${req}, true)`;
+    return fn(tx);
+  }, options);
+}
+
+/** Transacción previa a la creación de `usuarios` (solo para `app.aceptar_invitacion`). */
+export function withPreAuthTenant<T>(
+  prisma: PrismaClient,
+  ctx: PreAuthDbContext,
+  fn: (tx: Prisma.TransactionClient) => Promise<T>,
+  options?: { timeout?: number },
+): Promise<T> {
+  const firma = signPreAuthContext(ctx.authId, contextSecret(), { aal: ctx.aal ?? 'aal1' });
+  const req = (ctx.requestId ?? '').slice(0, 100);
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT set_config('app.ctx', ${firma}, true), set_config('app.coto_id', '', true), set_config('app.req', ${req}, true)`;
     return fn(tx);
   }, options);
 }

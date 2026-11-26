@@ -12,21 +12,31 @@ export interface OpcionesAuth {
 }
 
 const MAX_CACHE_USUARIOS = 10_000;
+const TTL_CACHE_MS = 60_000;
 
 /**
- * Resuelve auth_id -> usuario_id vía app.usuario_por_auth(uuid) con caché acotada en memoria.
+ * Resuelve auth_id -> usuario_id vía app.usuario_por_auth(uuid) con caché acotada (TTL 60 s).
  * Solo cachea resultados no nulos para que un usuario recién invitado sea visible de inmediato tras aceptar.
  */
-export function crearResolvedorUsuario(prisma: PrismaClient): (authId: string) => Promise<string | null> {
-  const cache = new Map<string, string>();
+export function crearResolvedorUsuario(
+  prisma: PrismaClient,
+  opts: { ttlMs?: number; ahora?: () => number } = {},
+): (authId: string) => Promise<string | null> {
+  const ttlMs = opts.ttlMs ?? TTL_CACHE_MS;
+  const ahora = opts.ahora ?? (() => Date.now());
+  const cache = new Map<string, { id: string; expira: number }>();
+
   return async (authId: string) => {
+    const ts = ahora();
     const enCache = cache.get(authId);
-    if (enCache) return enCache;
+    if (enCache && enCache.expira > ts) return enCache.id;
+    if (enCache) cache.delete(authId);
+
     const [fila] = await prisma.$queryRaw<{ id: string | null }[]>`SELECT app.usuario_por_auth(${authId}::uuid) AS id`;
     const id = fila?.id ?? null;
     if (id) {
       if (cache.size >= MAX_CACHE_USUARIOS) cache.clear();
-      cache.set(authId, id);
+      cache.set(authId, { id, expira: ts + ttlMs });
     }
     return id;
   };
@@ -75,7 +85,8 @@ export function autenticacion(o: OpcionesAuth): MiddlewareHandler<AppEnv> {
 
 /**
  * Middleware exclusivo para aceptar invitaciones antes de que exista fila en `usuarios`.
- * Exige JWT válido con correo presente y verificado.
+ * Exige Confirm email habilitado en Supabase Auth: confía únicamente en `payload.email`
+ * de nivel superior (nunca en `user_metadata`) y rechaza sesiones anónimas o `email_verified === false`.
  */
 export function autenticacionPreRegistro(
   o: Pick<OpcionesAuth, 'jwks' | 'issuer' | 'audience'>,
@@ -86,12 +97,7 @@ export function autenticacionPreRegistro(
     if (!email) {
       throw new AppError(403, 'correo_requerido', 'Tu sesión no incluye un correo electrónico');
     }
-    const userMeta =
-      typeof payload.user_metadata === 'object' && payload.user_metadata !== null
-        ? (payload.user_metadata as Record<string, unknown>)
-        : undefined;
-    const verificado = payload.email_verified === true || userMeta?.email_verified === true;
-    if (!verificado) {
+    if (payload.is_anonymous === true || payload.email_verified === false) {
       throw new AppError(403, 'correo_no_verificado', 'Verifica tu correo electrónico antes de aceptar la invitación');
     }
     c.set('authPre', { authId, aal, email });

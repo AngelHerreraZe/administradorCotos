@@ -1,7 +1,7 @@
 import type { Prisma } from '@admcotos/db';
 import { AppError } from '@admcotos/shared';
 import type { z } from '@hono/zod-openapi';
-import { actualizarConRls } from '../../lib/prisma.ts';
+import { actualizarConRls, conIdempotencia } from '../../lib/prisma.ts';
 import { aDto as cotoADto, selectCoto } from '../cotos/service.ts';
 import type {
   ActualizarOrganizacion,
@@ -33,6 +33,15 @@ const selectOrg = {
   activo: true,
 } as const;
 
+const selectSoporte = {
+  id: true,
+  orgId: true,
+  otorgadoPor: true,
+  ticketRef: true,
+  desde: true,
+  hasta: true,
+} as const;
+
 interface FilaResumenCoto {
   coto_id: string;
   coto: string;
@@ -44,6 +53,26 @@ interface FilaResumenCoto {
   unidades_morosas: number;
   pagos_por_revisar: number;
   tickets_abiertos: number;
+}
+
+/** Formatea decimal de BD con exactamente 2 decimales sin usar punto flotante. */
+function formatearMontoDecimal(valor: { toString(): string } | undefined): string {
+  const s = valor?.toString() ?? '0';
+  const [entero, dec = ''] = s.split('.');
+  return `${entero || '0'}.${dec.padEnd(2, '0').slice(0, 2)}`;
+}
+
+function soporteADto(
+  s: Prisma.SoporteAccesoGetPayload<{ select: typeof selectSoporte }>,
+): z.infer<typeof SoporteAccesoDto> {
+  return {
+    id: s.id,
+    orgId: s.orgId,
+    otorgadoPor: s.otorgadoPor,
+    ticketRef: s.ticketRef,
+    desde: s.desde.toISOString(),
+    hasta: s.hasta.toISOString(),
+  };
 }
 
 export async function obtener(tx: Prisma.TransactionClient, orgId: string): Promise<z.infer<typeof Organizacion>> {
@@ -93,10 +122,10 @@ export async function listarCotos(
         zonaHoraria: c.zonaHoraria,
         activo: c.activo,
         unidades: r?.unidades ?? 0,
-        emitidoMes: r?.emitido_mes.toString() ?? '0.00',
-        cobradoMes: r?.cobrado_mes.toString() ?? '0.00',
+        emitidoMes: formatearMontoDecimal(r?.emitido_mes),
+        cobradoMes: formatearMontoDecimal(r?.cobrado_mes),
         pctCobrado: r?.pct_cobrado?.toString() ?? null,
-        adeudoVencido: r?.adeudo_vencido.toString() ?? '0.00',
+        adeudoVencido: formatearMontoDecimal(r?.adeudo_vencido),
         unidadesMorosas: r?.unidades_morosas ?? 0,
         pagosPorRevisar: r?.pagos_por_revisar ?? 0,
         ticketsAbiertos: r?.tickets_abiertos ?? 0,
@@ -118,25 +147,33 @@ export async function abrirSoporte(
   orgId: string,
   usuarioId: string,
   datos: z.infer<typeof CrearSoporte>,
-): Promise<z.infer<typeof SoporteAccesoDto>> {
+  idempotencyKey?: string,
+): Promise<{ creado: boolean; dato: z.infer<typeof SoporteAccesoDto> }> {
   const desde = new Date();
   const hasta = new Date(desde.getTime() + datos.duracionHoras * 3_600_000);
-  const s = await tx.soporteAcceso.create({
-    data: {
-      orgId,
-      otorgadoPor: usuarioId,
-      ticketRef: datos.ticketRef,
-      desde,
-      hasta,
-    },
-    select: { id: true, orgId: true, otorgadoPor: true, ticketRef: true, desde: true, hasta: true },
-  });
-  return {
-    id: s.id,
-    orgId: s.orgId,
-    otorgadoPor: s.otorgadoPor,
-    ticketRef: s.ticketRef,
-    desde: s.desde.toISOString(),
-    hasta: s.hasta.toISOString(),
-  };
+  const claveIdempotencia = idempotencyKey ? `api:${usuarioId}:${idempotencyKey}` : undefined;
+
+  const res = await conIdempotencia(
+    tx,
+    claveIdempotencia,
+    () =>
+      tx.soporteAcceso.create({
+        data: {
+          orgId,
+          otorgadoPor: usuarioId,
+          ticketRef: datos.ticketRef,
+          ...(claveIdempotencia ? { claveIdempotencia } : {}),
+          desde,
+          hasta,
+        },
+        select: selectSoporte,
+      }),
+    () =>
+      tx.soporteAcceso.findFirst({
+        where: { claveIdempotencia, orgId },
+        select: selectSoporte,
+      }),
+  );
+
+  return { creado: res.creado, dato: soporteADto(res.dato) };
 }

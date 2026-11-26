@@ -1,8 +1,8 @@
 -- ════════════════════════════════════════════════════════════════════
--- FASE 1: IDENTIDAD, MFA (aal2), INVITACIONES Y ERRORES UA4xx
+-- FASE 1: IDENTIDAD, MFA (aal2), INVITACIONES, IDEMPOTENCIA Y UA4xx
 -- ════════════════════════════════════════════════════════════════════
 
--- ─── 1. Contexto v2 con nivel de autenticación (MFA) ────────────────
+-- ─── 1. Contexto v2 con nivel de autenticación (MFA) y pre-auth ─────
 ALTER TABLE "organizaciones" ADD COLUMN "exigir_mfa" BOOLEAN NOT NULL DEFAULT true;
 
 CREATE OR REPLACE FUNCTION app.uid() RETURNS uuid
@@ -26,10 +26,43 @@ BEGIN
   RETURN p[1]::uuid;
 END $$;
 
+-- Devuelve auth_id firmado tanto en contexto pre-registro (`auth.<auth_id>...`) como en sesión normal (`app.uid()`).
+CREATE FUNCTION app.auth_uid() RETURNS uuid
+LANGUAGE plpgsql STABLE SECURITY DEFINER
+SET search_path = pg_catalog, public, extensions, pg_temp AS $$
+DECLARE
+  v text := current_setting('app.ctx', true);
+  p text[];
+  v_uid uuid;
+BEGIN
+  IF v ~ '^auth\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.aal[12]\.[0-9]{10}\.[0-9a-f]{64}$' THEN
+    p := string_to_array(v, '.');
+    IF p[4]::bigint < extract(epoch FROM now()) THEN
+      RETURN NULL;
+    END IF;
+    IF encode(hmac(convert_to(p[1] || '.' || p[2] || '.' || p[3] || '.' || p[4], 'UTF8'), (SELECT s.secret FROM app_private.ctx_secret s), 'sha256'), 'hex')
+       IS DISTINCT FROM p[5] THEN
+      RETURN NULL;
+    END IF;
+    RETURN p[2]::uuid;
+  END IF;
+
+  v_uid := app.uid();
+  IF v_uid IS NOT NULL THEN
+    RETURN (SELECT u.auth_id FROM usuarios u WHERE u.id = v_uid AND u.activo);
+  END IF;
+  RETURN NULL;
+END $$;
+REVOKE EXECUTE ON FUNCTION app.auth_uid() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION app.auth_uid() TO app_service, app_worker;
+
 CREATE FUNCTION app.aal() RETURNS text
 LANGUAGE sql STABLE SECURITY DEFINER
 SET search_path = pg_catalog, public, pg_temp AS $$
-  SELECT CASE WHEN app.uid() IS NOT NULL THEN split_part(current_setting('app.ctx', true), '.', 2) END
+  SELECT CASE
+           WHEN app.uid() IS NOT NULL THEN split_part(current_setting('app.ctx', true), '.', 2)
+           WHEN app.auth_uid() IS NOT NULL THEN split_part(current_setting('app.ctx', true), '.', 3)
+         END
 $$;
 REVOKE EXECUTE ON FUNCTION app.aal() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION app.aal() TO app_service, app_worker;
@@ -37,7 +70,7 @@ GRANT EXECUTE ON FUNCTION app.aal() TO app_service, app_worker;
 CREATE OR REPLACE FUNCTION app._cotos(p_roles text[], p_org_roles text[], p_soporte boolean, p_escritura boolean)
 RETURNS uuid[] LANGUAGE sql STABLE SECURITY DEFINER
 SET search_path = pg_catalog, public, pg_temp AS $$
-  WITH me AS (SELECT app.uid() AS id),
+  WITH me AS (SELECT u.id FROM usuarios u WHERE u.id = app.uid() AND u.activo),
   fuentes AS (
     SELECT m.coto_id, 'coto'::text AS via
       FROM me JOIN miembros_coto m ON m.usuario_id = me.id
@@ -64,9 +97,17 @@ SET search_path = pg_catalog, public, pg_temp AS $$
          END
 $$;
 
+CREATE OR REPLACE FUNCTION app._unidades(p_roles text[]) RETURNS uuid[]
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $$
+  SELECT coalesce(array_agg(DISTINCT m.unidad_id), '{}')
+    FROM miembros_coto m
+    JOIN usuarios u ON u.id = m.usuario_id AND u.activo
+   WHERE m.usuario_id = (SELECT app.uid()) AND m.activo AND m.unidad_id IS NOT NULL AND m.rol = ANY (p_roles)
+$$;
+
 CREATE OR REPLACE FUNCTION app._orgs(p_roles text[], p_soporte boolean, p_escritura boolean) RETURNS uuid[]
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $$
-  WITH me AS (SELECT app.uid() AS id)
+  WITH me AS (SELECT u.id FROM usuarios u WHERE u.id = app.uid() AND u.activo)
   SELECT coalesce(array_agg(DISTINCT x.org_id), '{}')
     FROM (
       SELECT om.org_id FROM me JOIN org_miembros om ON om.usuario_id = me.id
@@ -89,13 +130,19 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, pg_te
      AND (NOT o.exigir_mfa OR app.aal() = 'aal2')
 $$;
 
--- ─── 2. Resolución auth_id -> usuario_id ────────────────────────────
+-- ─── 2. Resolución auth_id -> usuario_id e idempotencia soporte ─────
 CREATE FUNCTION app.usuario_por_auth(p_auth uuid) RETURNS uuid
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $$
   SELECT id FROM usuarios WHERE auth_id = p_auth AND activo
 $$;
 REVOKE EXECUTE ON FUNCTION app.usuario_por_auth(uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION app.usuario_por_auth(uuid) TO app_service, app_worker;
+
+ALTER TABLE "soporte_accesos" ADD COLUMN "clave_idempotencia" VARCHAR(100);
+CREATE UNIQUE INDEX "soporte_accesos_clave_idempotencia_key" ON "soporte_accesos"("clave_idempotencia");
+DROP TRIGGER inmutable ON public.soporte_accesos;
+CREATE TRIGGER inmutable BEFORE UPDATE ON public.soporte_accesos
+  FOR EACH ROW EXECUTE FUNCTION app.tg_inmutable('org_id', 'otorgado_por', 'desde', 'clave_idempotencia');
 
 -- ─── 3. Invitaciones de ingreso ─────────────────────────────────────
 CREATE TABLE "invitaciones_miembro" (
@@ -106,6 +153,7 @@ CREATE TABLE "invitaciones_miembro" (
     "email" CITEXT NOT NULL,
     "rol" VARCHAR(30) NOT NULL,
     "token_hash" CHAR(64) NOT NULL,
+    "clave_idempotencia" VARCHAR(100),
     "expira_en" TIMESTAMPTZ NOT NULL,
     "aceptada_en" TIMESTAMPTZ,
     "revocada_en" TIMESTAMPTZ,
@@ -120,8 +168,11 @@ CREATE TABLE "invitaciones_miembro" (
 );
 
 CREATE UNIQUE INDEX "invitaciones_miembro_token_hash_key" ON "invitaciones_miembro"("token_hash");
+CREATE UNIQUE INDEX "invitaciones_miembro_clave_idempotencia_key" ON "invitaciones_miembro"("clave_idempotencia");
 CREATE INDEX "invitaciones_miembro_coto_id_created_at_idx" ON "invitaciones_miembro"("coto_id", "created_at" DESC);
 CREATE INDEX "invitaciones_miembro_org_id_email_idx" ON "invitaciones_miembro"("org_id", "email");
+CREATE INDEX "invitaciones_miembro_unidad_id_idx" ON "invitaciones_miembro"("unidad_id");
+CREATE INDEX "invitaciones_miembro_creada_por_idx" ON "invitaciones_miembro"("creada_por");
 
 -- Seguridad de invitaciones_miembro
 ALTER TABLE invitaciones_miembro ENABLE ROW LEVEL SECURITY;
@@ -142,8 +193,21 @@ CREATE POLICY ins ON invitaciones_miembro FOR INSERT TO app_service
     )
   );
 CREATE POLICY upd ON invitaciones_miembro FOR UPDATE TO app_service
-  USING ((coto_id IS NOT NULL AND coto_id = ANY ((SELECT app.cotos_admin())::uuid[]))
-      OR (coto_id IS NULL AND org_id = ANY ((SELECT app.orgs_owner())::uuid[])));
+  USING (
+    aceptada_en IS NULL
+    AND revocada_en IS NULL
+    AND (
+      (coto_id IS NOT NULL AND coto_id = ANY ((SELECT app.cotos_admin())::uuid[]))
+      OR (coto_id IS NULL AND org_id = ANY ((SELECT app.orgs_owner())::uuid[]))
+    )
+  )
+  WITH CHECK (
+    revocada_en IS NOT NULL
+    AND (
+      (coto_id IS NOT NULL AND coto_id = ANY ((SELECT app.cotos_admin())::uuid[]))
+      OR (coto_id IS NULL AND org_id = ANY ((SELECT app.orgs_owner())::uuid[]))
+    )
+  );
 
 GRANT SELECT, INSERT ON invitaciones_miembro TO app_service;
 GRANT UPDATE (revocada_en) ON invitaciones_miembro TO app_service;
@@ -161,11 +225,14 @@ ALTER TABLE invitaciones_miembro
   ),
   ADD CONSTRAINT invitaciones_miembro_hash_ck CHECK (token_hash ~ '^[0-9a-f]{64}$');
 
-CREATE FUNCTION app.tg_invitacion_org_coto() RETURNS trigger
+CREATE FUNCTION app.tg_invitacion_defaults() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $$
 DECLARE
   v_org uuid;
 BEGIN
+  IF TG_OP = 'INSERT' AND current_user = 'app_service' THEN
+    NEW.created_at := now();
+  END IF;
   IF NEW.coto_id IS NOT NULL THEN
     SELECT org_id INTO v_org FROM cotos WHERE id = NEW.coto_id;
     IF v_org IS DISTINCT FROM NEW.org_id THEN
@@ -174,27 +241,36 @@ BEGIN
   END IF;
   RETURN NEW;
 END $$;
-REVOKE EXECUTE ON FUNCTION app.tg_invitacion_org_coto() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION app.tg_invitacion_defaults() FROM PUBLIC;
 
 CREATE TRIGGER invitacion_org_coto BEFORE INSERT OR UPDATE OF org_id, coto_id ON public.invitaciones_miembro
-  FOR EACH ROW EXECUTE FUNCTION app.tg_invitacion_org_coto();
+  FOR EACH ROW EXECUTE FUNCTION app.tg_invitacion_defaults();
 CREATE TRIGGER mismo_coto BEFORE INSERT OR UPDATE OF coto_id, unidad_id ON public.invitaciones_miembro
   FOR EACH ROW EXECUTE FUNCTION app.tg_mismo_coto('unidad_id', 'unidades');
 CREATE TRIGGER inmutable BEFORE UPDATE ON public.invitaciones_miembro
-  FOR EACH ROW EXECUTE FUNCTION app.tg_inmutable('org_id', 'coto_id', 'unidad_id', 'email', 'rol', 'token_hash', 'expira_en', 'creada_por');
+  FOR EACH ROW EXECUTE FUNCTION app.tg_inmutable('org_id', 'coto_id', 'unidad_id', 'email', 'rol', 'token_hash', 'expira_en', 'creada_por', 'created_at', 'clave_idempotencia');
 CREATE TRIGGER auditar AFTER INSERT OR UPDATE OR DELETE ON public.invitaciones_miembro
   FOR EACH ROW EXECUTE FUNCTION app.tg_auditar('token_hash');
 
 CREATE FUNCTION app.aceptar_invitacion(p_token_hash text, p_auth uuid, p_email citext, p_nombre text, p_apellido text)
 RETURNS uuid
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, extensions, pg_temp AS $$
 DECLARE
+  v_auth_ctx uuid := app.auth_uid();
+  v_aal text := coalesce(app.aal(), 'aal1');
   v_inv invitaciones_miembro%ROWTYPE;
   v_usuario usuarios%ROWTYPE;
   v_usuario_id uuid;
   v_nombre text := nullif(btrim(p_nombre), '');
   v_apellido text := nullif(btrim(p_apellido), '');
+  v_exp text;
+  v_payload text;
+  v_ctx text;
 BEGIN
+  IF v_auth_ctx IS NULL OR v_auth_ctx IS DISTINCT FROM p_auth THEN
+    RAISE EXCEPTION 'Sesión inválida para aceptar invitación' USING ERRCODE = 'UA403';
+  END IF;
+
   IF p_token_hash IS NULL OR p_token_hash !~ '^[0-9a-f]{64}$' THEN
     RAISE EXCEPTION 'La invitación no existe o ya venció' USING ERRCODE = 'UA404';
   END IF;
@@ -240,6 +316,15 @@ BEGIN
     VALUES (p_auth, v_nombre, v_apellido, v_inv.email)
     RETURNING id INTO v_usuario_id;
   END IF;
+
+  -- Firma app.ctx con el usuarios.id real para que tg_auditar registre al actor correcto en audit_outbox.
+  v_exp := (floor(extract(epoch FROM now()))::bigint + 300)::text;
+  v_payload := v_usuario_id::text || '.' || v_aal || '.' || v_exp;
+  v_ctx := v_payload || '.' || encode(
+    hmac(convert_to(v_payload, 'UTF8'), (SELECT s.secret FROM app_private.ctx_secret s), 'sha256'),
+    'hex'
+  );
+  PERFORM set_config('app.ctx', v_ctx, true);
 
   IF v_inv.coto_id IS NULL THEN
     INSERT INTO org_miembros (org_id, usuario_id, rol, activo)

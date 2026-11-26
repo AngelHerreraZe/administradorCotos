@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
-import { type AalLevel, signDbContext } from '@admcotos/security';
+import { type AalLevel, signDbContext, signPreAuthContext } from '@admcotos/security';
 import { PGlite } from '@electric-sql/pglite';
 import { btree_gist } from '@electric-sql/pglite/contrib/btree_gist';
 import { citext } from '@electric-sql/pglite/contrib/citext';
@@ -436,7 +436,7 @@ test('MFA (aal2) y contexto v2: firma v1 rechazada; staff sin aal2 lee pero no e
   );
 });
 
-test('identidad e invitaciones: usuario_por_auth, mis_membresias, aceptación, expirada, revocada e idempotente', async () => {
+test('identidad e invitaciones: políticas RLS, pre-auth, auditoría con usuario.id real, expirada, revocada e idempotente', async () => {
   const authAdmin = (await db.query<Fila>(`SELECT auth_id FROM usuarios WHERE id = $1`, [u.adminA1])).rows[0].auth_id;
   assert.equal((await como(null, `SELECT app.usuario_por_auth($1) AS id`, [authAdmin]))[0].id, u.adminA1);
   assert.equal((await como(null, `SELECT app.usuario_por_auth($1) AS id`, [id()]))[0].id, null);
@@ -470,42 +470,158 @@ test('identidad e invitaciones: usuario_por_auth, mis_membresias, aceptación, e
 
   // Invitación válida creada por adminA1
   const tokOk = 'token-inv-valido-1';
-  await como(
+  const [{ id: invOkId }] = await como(
     u.adminA1,
     `INSERT INTO invitaciones_miembro (org_id, coto_id, unidad_id, email, rol, token_hash, expira_en, creada_por)
-     VALUES ($1, $2, $3, 'VecinoNuevo@alfa.mx', 'residente_propietario', $4, now() + interval '2 days', $5)`,
+     VALUES ($1, $2, $3, 'VecinoNuevo@alfa.mx', 'residente_propietario', $4, now() + interval '2 days', $5) RETURNING id`,
     [ORG_A, A1, UA1B, sha(tokOk), u.adminA1],
   );
+
+  // Políticas sel y coto_activo en invitaciones_miembro
+  assert.equal(await contar(u.adminA1, 'invitaciones_miembro'), 1);
+  assert.equal(await contar(u.adminA1, 'invitaciones_miembro', { aal: 'aal1' }), 0); // sin MFA no ve
+  assert.equal(await contar(u.adminA1, 'invitaciones_miembro', { coto: A2 }), 0); // coto_activo restringe
+  assert.equal(await contar(u.propA1, 'invitaciones_miembro'), 0);
+  assert.equal(await contar(u.guardA1, 'invitaciones_miembro'), 0);
+  assert.equal(await contar(u.ownerB, 'invitaciones_miembro'), 0);
   // No puede forjar aceptada_en directamente
   await assert.rejects(
     como(u.adminA1, `UPDATE invitaciones_miembro SET aceptada_en = now() WHERE token_hash = $1`, [sha(tokOk)]),
     /permission denied/,
   );
+  // Admin de otra organización o sin MFA no puede revocar invitación de A1
+  assert.equal(
+    (await como(u.ownerB, `UPDATE invitaciones_miembro SET revocada_en = now() WHERE id = $1 RETURNING id`, [invOkId]))
+      .length,
+    0,
+  );
+  assert.equal(
+    (
+      await como(
+        u.adminA1,
+        `UPDATE invitaciones_miembro SET revocada_en = now() WHERE id = $1 RETURNING id`,
+        [invOkId],
+        { aal: 'aal1' },
+      )
+    ).length,
+    0,
+  );
 
   const authNuevo = id();
+  const preCtx = signPreAuthContext(authNuevo, SECRET, { aal: 'aal1' });
+  // Sin contexto pre-auth firmado o con otro auth_id -> UA403
+  await assert.rejects(
+    como(null, `SELECT app.aceptar_invitacion($1, $2, 'vecinonuevo@alfa.mx', 'Ana', 'García')`, [
+      sha(tokOk),
+      authNuevo,
+    ]),
+    /Sesión inválida/,
+  );
+  await assert.rejects(
+    como(null, `SELECT app.aceptar_invitacion($1, $2, 'vecinonuevo@alfa.mx', 'Ana', 'García')`, [sha(tokOk), id()], {
+      ctx: preCtx,
+    }),
+    /Sesión inválida/,
+  );
+  // Pre-auth no permite leer tablas con RLS
+  assert.equal(await contar(null, 'cargos', { ctx: preCtx }), 0);
+
   // Correo distinto -> UA403
   await assert.rejects(
-    como(null, `SELECT app.aceptar_invitacion($1, $2, 'otro@alfa.mx', 'Ana', 'García')`, [sha(tokOk), authNuevo]),
+    como(null, `SELECT app.aceptar_invitacion($1, $2, 'otro@alfa.mx', 'Ana', 'García')`, [sha(tokOk), authNuevo], {
+      ctx: preCtx,
+    }),
     /no coincide/,
   );
 
-  // Aceptar con correo coincidente (case-insensitive via citext) -> crea usuario y membresía
+  // Aceptar con correo coincidente (contexto pre-auth igual al de la API) -> crea usuario, membresía y auditoría correcta
   const uid1 = (
-    await como(null, `SELECT app.aceptar_invitacion($1, $2, 'vecinonuevo@alfa.mx', 'Ana', 'García') AS id`, [
-      sha(tokOk),
-      authNuevo,
-    ])
+    await como(
+      null,
+      `SELECT app.aceptar_invitacion($1, $2, 'vecinonuevo@alfa.mx', 'Ana', 'García') AS id`,
+      [sha(tokOk), authNuevo],
+      { ctx: preCtx },
+    )
   )[0].id;
+  assert.notEqual(uid1, authNuevo);
+
+  // Auditoría debe registrar usuarios.id real (nunca auth_id)
+  const auditAcept = await db.query<Fila>(
+    `SELECT accion, usuario_id FROM audit_outbox WHERE recurso_id = $1 AND accion = 'invitaciones_miembro.update'`,
+    [invOkId],
+  );
+  assert.equal(auditAcept.rows.length, 1);
+  assert.equal(auditAcept.rows[0].usuario_id, uid1);
+
   // Idempotente al repetir con el mismo auth_id
   const uid2 = (
-    await como(null, `SELECT app.aceptar_invitacion($1, $2, 'vecinonuevo@alfa.mx', 'Ana', 'García') AS id`, [
-      sha(tokOk),
-      authNuevo,
-    ])
+    await como(
+      null,
+      `SELECT app.aceptar_invitacion($1, $2, 'vecinonuevo@alfa.mx', 'Ana', 'García') AS id`,
+      [sha(tokOk), authNuevo],
+      { ctx: preCtx },
+    )
   )[0].id;
   assert.equal(uid1, uid2);
 
-  // Invitación revocada -> rechazada
+  // Ya aceptada por otro auth_id -> UA409
+  const authOtro = id();
+  await assert.rejects(
+    como(
+      null,
+      `SELECT app.aceptar_invitacion($1, $2, 'vecinonuevo@alfa.mx', 'Ana', 'García')`,
+      [sha(tokOk), authOtro],
+      { ctx: signPreAuthContext(authOtro, SECRET) },
+    ),
+    /ya fue utilizada/,
+  );
+
+  // Ya aceptada no puede ser revocada por RLS
+  assert.equal(
+    (await como(u.adminA1, `UPDATE invitaciones_miembro SET revocada_en = now() WHERE id = $1 RETURNING id`, [invOkId]))
+      .length,
+    0,
+  );
+
+  // Rama de despacho (coto_id IS NULL): org_owner con aal2 sí puede invitar org_admin; sin aal2 o sin ser owner no
+  const tokOrg = 'token-inv-org-admin';
+  await como(
+    u.ownerA,
+    `INSERT INTO invitaciones_miembro (org_id, coto_id, email, rol, token_hash, expira_en, creada_por)
+     VALUES ($1, NULL, 'orgadmin@alfa.mx', 'org_admin', $2, now() + interval '1 day', $3)`,
+    [ORG_A, sha(tokOrg), u.ownerA],
+  );
+  await assert.rejects(
+    como(
+      u.ownerA,
+      `INSERT INTO invitaciones_miembro (org_id, coto_id, email, rol, token_hash, expira_en, creada_por)
+       VALUES ($1, NULL, 'orgadmin2@alfa.mx', 'org_admin', $2, now() + interval '1 day', $3)`,
+      [ORG_A, sha('tok-org-aal1'), u.ownerA],
+      { aal: 'aal1' },
+    ),
+    /row-level security/,
+  );
+  const authOrgAdmin = id();
+  const orgAdminUid = (
+    await como(
+      null,
+      `SELECT app.aceptar_invitacion($1, $2, 'orgadmin@alfa.mx', 'Carlos', 'Ruiz') AS id`,
+      [sha(tokOrg), authOrgAdmin],
+      { ctx: signPreAuthContext(authOrgAdmin, SECRET, { aal: 'aal2' }) },
+    )
+  )[0].id;
+  // org_admin no puede invitar otro org_admin (solo orgs_owner)
+  await assert.rejects(
+    como(
+      orgAdminUid,
+      `INSERT INTO invitaciones_miembro (org_id, coto_id, email, rol, token_hash, expira_en, creada_por)
+       VALUES ($1, NULL, 'otroorg@alfa.mx', 'org_admin', $2, now() + interval '1 day', $3)`,
+      [ORG_A, sha('tok-por-orgadmin'), orgAdminUid],
+    ),
+    /row-level security/,
+  );
+
+  // Invitación revocada -> rechazada y no se puede des-revocar
   const tokRev = 'token-inv-revocado';
   const [{ id: invRevId }] = await como(
     u.adminA1,
@@ -514,8 +630,16 @@ test('identidad e invitaciones: usuario_por_auth, mis_membresias, aceptación, e
     [ORG_A, A1, sha(tokRev), u.adminA1],
   );
   await como(u.adminA1, `UPDATE invitaciones_miembro SET revocada_en = now() WHERE id = $1`, [invRevId]);
+  assert.equal(
+    (await como(u.adminA1, `UPDATE invitaciones_miembro SET revocada_en = NULL WHERE id = $1 RETURNING id`, [invRevId]))
+      .length,
+    0,
+  );
+  const authRev = id();
   await assert.rejects(
-    como(null, `SELECT app.aceptar_invitacion($1, $2, 'guardia@alfa.mx', 'Luis', 'Pérez')`, [sha(tokRev), id()]),
+    como(null, `SELECT app.aceptar_invitacion($1, $2, 'guardia@alfa.mx', 'Luis', 'Pérez')`, [sha(tokRev), authRev], {
+      ctx: signPreAuthContext(authRev, SECRET),
+    }),
     /no existe o ya venció/,
   );
 
@@ -526,8 +650,11 @@ test('identidad e invitaciones: usuario_por_auth, mis_membresias, aceptación, e
      VALUES ($1, $2, 'exp@alfa.mx', 'guardia', $3, now() - interval '1 hour', $4, now() - interval '2 days')`,
     [ORG_A, A1, sha(tokExp), u.adminA1],
   );
+  const authExp = id();
   await assert.rejects(
-    como(null, `SELECT app.aceptar_invitacion($1, $2, 'exp@alfa.mx', 'Luis', 'Pérez')`, [sha(tokExp), id()]),
+    como(null, `SELECT app.aceptar_invitacion($1, $2, 'exp@alfa.mx', 'Luis', 'Pérez')`, [sha(tokExp), authExp], {
+      ctx: signPreAuthContext(authExp, SECRET),
+    }),
     /no existe o ya venció/,
   );
 
@@ -539,11 +666,19 @@ test('identidad e invitaciones: usuario_por_auth, mis_membresias, aceptación, e
      VALUES ($1, $2, 'vecinonuevo@alfa.mx', 'coto_comite', $3, now() + interval '2 days', $4)`,
     [ORG_A, A1, sha(tokOtroAuth), u.adminA1],
   );
+  const authDup = id();
   await assert.rejects(
-    como(null, `SELECT app.aceptar_invitacion($1, $2, 'vecinonuevo@alfa.mx', 'Ana', 'García')`, [
-      sha(tokOtroAuth),
-      id(),
-    ]),
+    como(
+      null,
+      `SELECT app.aceptar_invitacion($1, $2, 'vecinonuevo@alfa.mx', 'Ana', 'García')`,
+      [sha(tokOtroAuth), authDup],
+      { ctx: signPreAuthContext(authDup, SECRET) },
+    ),
     /vinculado a otra cuenta/,
   );
+
+  // Usuario desactivado (usuarios.activo = false) pierde acceso inmediato en BD
+  await db.query(`UPDATE usuarios SET activo = false WHERE id = $1`, [uid1]);
+  assert.equal(await contar(uid1, 'cargos', { aal: 'aal1' }), 0);
+  await db.query(`UPDATE usuarios SET activo = true WHERE id = $1`, [uid1]);
 });

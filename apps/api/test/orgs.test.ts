@@ -11,6 +11,7 @@ const USER_ID = '22222222-2222-4222-8222-222222222222';
 const ORG_ID = '44444444-4444-4444-8444-444444444444';
 const COTO_ID = '33333333-3333-4333-8333-333333333333';
 const SOPORTE_ID = '77777777-7777-4777-8777-777777777777';
+const IDEM_KEY = '88888888-8888-4888-8888-888888888888';
 
 process.env.DB_CTX_SECRET ??= 'ab'.repeat(32);
 
@@ -136,7 +137,7 @@ describe('módulo de organizaciones', () => {
     ).toBe(403);
   });
 
-  test('GET /orgs/{orgId}/cotos y POST /orgs/{orgId}/cotos', async () => {
+  test('GET /orgs/{orgId}/cotos formatea montos a 2 decimales y POST /orgs/{orgId}/cotos', async () => {
     const app = appConTx({
       $queryRaw: async (strings: TemplateStringsArray) => {
         if (strings.join('').includes('orgs_lectura')) return [{ ok: true }];
@@ -145,10 +146,10 @@ describe('módulo de organizaciones', () => {
             coto_id: COTO_ID,
             coto: 'Miraflores',
             unidades: 10,
-            emitido_mes: '10000.00',
-            cobrado_mes: '8000.00',
-            pct_cobrado: '80.0',
-            adeudo_vencido: '2000.00',
+            emitido_mes: '1450.5',
+            cobrado_mes: '0',
+            pct_cobrado: '0.0',
+            adeudo_vencido: '1450.5',
             unidades_morosas: 2,
             pagos_por_revisar: 1,
             tickets_abiertos: 3,
@@ -202,7 +203,7 @@ describe('módulo de organizaciones', () => {
     });
     expect(lista.status).toBe(200);
     expect(await lista.json()).toMatchObject({
-      datos: [{ cotoId: COTO_ID, unidades: 10, emitidoMes: '10000.00', cobradoMes: '8000.00' }],
+      datos: [{ cotoId: COTO_ID, unidades: 10, emitidoMes: '1450.50', cobradoMes: '0.00', adeudoVencido: '1450.50' }],
     });
 
     const crear = await app.request(`/api/v1/orgs/${ORG_ID}/cotos`, {
@@ -221,18 +222,28 @@ describe('módulo de organizaciones', () => {
     expect(slugMalo.status).toBe(422);
   });
 
-  test('POST /orgs/{orgId}/soporte: máximo 72 horas (422) y creación (201)', async () => {
+  test('POST /orgs/{orgId}/soporte: máximo 72 h (422), creación (201 sin Location inválido) e Idempotency-Key (200)', async () => {
     const ahora = new Date('2026-11-26T16:00:00Z');
+    const guardados = new Map<string, Record<string, unknown>>();
     const app = appConTx({
       soporteAcceso: {
-        create: async () => ({
-          id: SOPORTE_ID,
-          orgId: ORG_ID,
-          otorgadoPor: USER_ID,
-          ticketRef: 'T-4092',
-          desde: ahora,
-          hasta: new Date(ahora.getTime() + 24 * 3_600_000),
-        }),
+        create: async ({ data }: { data: { ticketRef: string; claveIdempotencia?: string } }) => {
+          if (data.claveIdempotencia && guardados.has(data.claveIdempotencia)) {
+            throw Object.assign(new Error('Unique violation'), { code: 'P2002' });
+          }
+          const fila = {
+            id: SOPORTE_ID,
+            orgId: ORG_ID,
+            otorgadoPor: USER_ID,
+            ticketRef: data.ticketRef,
+            desde: ahora,
+            hasta: new Date(ahora.getTime() + 24 * 3_600_000),
+          };
+          if (data.claveIdempotencia) guardados.set(data.claveIdempotencia, fila);
+          return fila;
+        },
+        findFirst: async ({ where }: { where: { claveIdempotencia?: string } }) =>
+          where.claveIdempotencia ? (guardados.get(where.claveIdempotencia) ?? null) : null,
       },
     });
     const token = await firmarToken();
@@ -244,12 +255,22 @@ describe('módulo de organizaciones', () => {
     });
     expect(exceso.status).toBe(422);
 
-    const ok = await app.request(`/api/v1/orgs/${ORG_ID}/soporte`, {
+    const ok1 = await app.request(`/api/v1/orgs/${ORG_ID}/soporte`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', 'Idempotency-Key': IDEM_KEY },
       body: JSON.stringify({ ticketRef: 'T-4092', duracionHoras: 24 }),
     });
-    expect(ok.status).toBe(201);
-    expect(await ok.json()).toMatchObject({ id: SOPORTE_ID, ticketRef: 'T-4092' });
+    expect(ok1.status).toBe(201);
+    expect(ok1.headers.get('location')).toBeNull();
+    const dto = await ok1.json();
+    expect(dto).toMatchObject({ id: SOPORTE_ID, ticketRef: 'T-4092' });
+
+    const ok2 = await app.request(`/api/v1/orgs/${ORG_ID}/soporte`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', 'Idempotency-Key': IDEM_KEY },
+      body: JSON.stringify({ ticketRef: 'T-4092', duracionHoras: 24 }),
+    });
+    expect(ok2.status).toBe(200);
+    expect(await ok2.json()).toEqual(dto);
   });
 });

@@ -1,9 +1,10 @@
 import crypto from 'node:crypto';
+import type { PrismaClient } from '@admcotos/db';
 import { Hono } from 'hono';
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from 'jose';
 import { pino } from 'pino';
 import { beforeAll, describe, expect, test } from 'vitest';
-import { autenticacion, autenticacionPreRegistro } from '../src/middleware/auth.ts';
+import { autenticacion, autenticacionPreRegistro, crearResolvedorUsuario } from '../src/middleware/auth.ts';
 import { manejarError } from '../src/middleware/errors.ts';
 import type { AppEnv } from '../src/types.ts';
 
@@ -118,9 +119,38 @@ describe('middleware de autenticación (JWT ES256 + JWKS)', () => {
     expect(await res.json()).toMatchObject({ code: 'sin_cuenta' });
   });
 
-  test('pre-registro exige correo verificado', async () => {
+  test('caché de resolvedor expira por TTL (60s) para reflejar desactivación de usuarios', async () => {
+    let llamadas = 0;
+    let activo = true;
+    let reloj = 1_000_000;
+    const prisma = {
+      $queryRaw: async () => {
+        llamadas += 1;
+        return [{ id: activo ? USER_ID : null }];
+      },
+    } as unknown as PrismaClient;
+
+    const resolver = crearResolvedorUsuario(prisma, { ttlMs: 60_000, ahora: () => reloj });
+    expect(await resolver(AUTH_ID)).toBe(USER_ID);
+    reloj += 30_000;
+    expect(await resolver(AUTH_ID)).toBe(USER_ID);
+    expect(llamadas).toBe(1);
+
+    activo = false;
+    reloj += 35_000;
+    expect(await resolver(AUTH_ID)).toBeNull();
+    expect(llamadas).toBe(2);
+  });
+
+  test('pre-registro ignora user_metadata, rechaza anónimos/email_verified=false y acepta email top-level', async () => {
     const app = crearApp();
-    const sinVerificar = await new SignJWT({ email: 'a@b.mx', email_verified: false })
+
+    // Solo user_metadata.email_verified = true con email_verified: false -> rechazado
+    const soloUserMeta = await new SignJWT({
+      email: 'a@b.mx',
+      email_verified: false,
+      user_metadata: { email_verified: true },
+    })
       .setProtectedHeader({ alg: 'ES256', kid: 'k1' })
       .setIssuer(ISSUER)
       .setAudience(AUDIENCE)
@@ -128,17 +158,46 @@ describe('middleware de autenticación (JWT ES256 + JWKS)', () => {
       .setExpirationTime('5m')
       .sign(privateKey);
     expect(
-      (await app.request('/inv/ok', { method: 'POST', headers: { Authorization: `Bearer ${sinVerificar}` } })).status,
+      (await app.request('/inv/ok', { method: 'POST', headers: { Authorization: `Bearer ${soloUserMeta}` } })).status,
     ).toBe(403);
 
-    const verificado = await new SignJWT({ email: 'a@b.mx', email_verified: true })
+    // Solo user_metadata sin claim email top-level -> rechazado
+    const sinEmailTop = await new SignJWT({ user_metadata: { email: 'a@b.mx', email_verified: true } })
       .setProtectedHeader({ alg: 'ES256', kid: 'k1' })
       .setIssuer(ISSUER)
       .setAudience(AUDIENCE)
       .setSubject(AUTH_ID)
       .setExpirationTime('5m')
       .sign(privateKey);
-    const ok = await app.request('/inv/ok', { method: 'POST', headers: { Authorization: `Bearer ${verificado}` } });
+    expect(
+      (await app.request('/inv/ok', { method: 'POST', headers: { Authorization: `Bearer ${sinEmailTop}` } })).status,
+    ).toBe(403);
+
+    // Sesión anónima aunque manipule user_metadata -> rechazada
+    const anon = await new SignJWT({
+      email: 'a@b.mx',
+      is_anonymous: true,
+      user_metadata: { email_verified: true },
+    })
+      .setProtectedHeader({ alg: 'ES256', kid: 'k1' })
+      .setIssuer(ISSUER)
+      .setAudience(AUDIENCE)
+      .setSubject(AUTH_ID)
+      .setExpirationTime('5m')
+      .sign(privateKey);
+    expect(
+      (await app.request('/inv/ok', { method: 'POST', headers: { Authorization: `Bearer ${anon}` } })).status,
+    ).toBe(403);
+
+    // JWT emitido por Supabase Auth con Confirm email activo (claim email top-level) -> aceptado
+    const confirmado = await new SignJWT({ email: 'a@b.mx' })
+      .setProtectedHeader({ alg: 'ES256', kid: 'k1' })
+      .setIssuer(ISSUER)
+      .setAudience(AUDIENCE)
+      .setSubject(AUTH_ID)
+      .setExpirationTime('5m')
+      .sign(privateKey);
+    const ok = await app.request('/inv/ok', { method: 'POST', headers: { Authorization: `Bearer ${confirmado}` } });
     expect(ok.status).toBe(200);
     expect(await ok.json()).toEqual({ authId: AUTH_ID, aal: 'aal1', email: 'a@b.mx' });
   });

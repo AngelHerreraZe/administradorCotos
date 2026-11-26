@@ -30,9 +30,11 @@ export interface EscenarioE2E {
   usuarios: {
     ownerA: { id: string; authId: string; email: string };
     adminA1: { id: string; authId: string; email: string };
+    comiteA1: { id: string; authId: string; email: string };
     propA1: { id: string; authId: string; email: string };
     propB1: { id: string; authId: string; email: string };
   };
+  adminPrisma: PrismaClient;
   firmarJwt: (
     authId: string,
     opts?: { aal?: 'aal1' | 'aal2'; email?: string; emailVerified?: boolean },
@@ -92,6 +94,11 @@ export async function iniciarEscenarioE2E(): Promise<EscenarioE2E> {
 
   const ownerA = { id: crypto.randomUUID(), authId: crypto.randomUUID(), email: `owner-${orgA.slice(0, 8)}@alfa.mx` };
   const adminA1 = { id: crypto.randomUUID(), authId: crypto.randomUUID(), email: `admin-${orgA.slice(0, 8)}@alfa.mx` };
+  const comiteA1 = {
+    id: crypto.randomUUID(),
+    authId: crypto.randomUUID(),
+    email: `comite-${orgA.slice(0, 8)}@alfa.mx`,
+  };
   const propA1 = { id: crypto.randomUUID(), authId: crypto.randomUUID(), email: `prop-a-${orgA.slice(0, 8)}@alfa.mx` };
   const propB1 = { id: crypto.randomUUID(), authId: crypto.randomUUID(), email: `prop-b-${orgB.slice(0, 8)}@beta.mx` };
 
@@ -118,7 +125,7 @@ export async function iniciarEscenarioE2E(): Promise<EscenarioE2E> {
       ],
     });
     await tx.usuario.createMany({
-      data: [ownerA, adminA1, propA1, propB1].map((u) => ({
+      data: [ownerA, adminA1, comiteA1, propA1, propB1].map((u) => ({
         id: u.id,
         authId: u.authId,
         nombre: 'Prueba',
@@ -130,6 +137,7 @@ export async function iniciarEscenarioE2E(): Promise<EscenarioE2E> {
     await tx.miembroCoto.createMany({
       data: [
         { cotoId: cotoA1, usuarioId: adminA1.id, rol: 'coto_admin' },
+        { cotoId: cotoA1, usuarioId: comiteA1.id, rol: 'coto_comite' },
         { cotoId: cotoA1, unidadId: unidadA1, usuarioId: propA1.id, rol: 'residente_propietario' },
         { cotoId: cotoB1, unidadId: unidadB1, usuarioId: propB1.id, rol: 'residente_propietario' },
       ],
@@ -181,7 +189,8 @@ export async function iniciarEscenarioE2E(): Promise<EscenarioE2E> {
     unidadA1B,
     unidadB1,
     sectorB1,
-    usuarios: { ownerA, adminA1, propA1, propB1 },
+    usuarios: { ownerA, adminA1, comiteA1, propA1, propB1 },
+    adminPrisma,
     firmarJwt: (authId, opts = {}) =>
       new SignJWT({
         aal: opts.aal ?? 'aal1',

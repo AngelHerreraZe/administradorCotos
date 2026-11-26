@@ -62,7 +62,7 @@ function appConTx(tx: Record<string, unknown>) {
 }
 
 describe('módulo de miembros', () => {
-  test('GET y PATCH /cotos/{cotoId}/miembros: feliz, 422, 403/404', async () => {
+  test('GET y PATCH /cotos/{cotoId}/miembros: feliz, desactivación sin 500, minimización LFPDPPP, 422, 403', async () => {
     const token = await firmarToken();
     const mBase = {
       id: MIEMBRO_ID,
@@ -77,17 +77,29 @@ describe('módulo de miembros', () => {
         apellidoPaterno: 'Pérez',
         apellidoMaterno: null,
         email: 'juan@alfa.mx',
-        telefono: null,
+        telefono: '3312345678',
       },
     };
 
     const app = appConTx({
-      $queryRaw: async () => [{ ok: true }],
+      $queryRaw: async () => [{ staff: true, contacto: true }],
       miembroCoto: {
-        findMany: async () => [mBase],
+        findMany: async ({ where }: { where: { activo?: boolean } }) => {
+          expect(where.activo).toBe(true);
+          return [mBase];
+        },
         findFirst: async () => ({ id: MIEMBRO_ID, rol: 'residente_propietario', unidadId: UNIDAD_ID }),
-        update: async () => ({ ...mBase, rol: 'coto_comite' }),
+        update: async ({ data }: { data: { activo?: boolean; rol?: string } }) => ({
+          id: MIEMBRO_ID,
+          cotoId: COTO_ID,
+          unidadId: UNIDAD_ID,
+          usuarioId: USER_ID,
+          rol: data.rol ?? 'residente_propietario',
+          activo: data.activo ?? true,
+          unidad: { numero: '101' },
+        }),
       },
+      usuario: { findUnique: async () => mBase.usuario },
     });
 
     const getOk = await app.request(`/api/v1/cotos/${COTO_ID}/miembros`, {
@@ -105,14 +117,39 @@ describe('módulo de miembros', () => {
     });
     expect(patchSinUnidad.status).toBe(422);
 
-    const patchOk = await app.request(`/api/v1/cotos/${COTO_ID}/miembros/${MIEMBRO_ID}`, {
+    const patchDesactivar = await app.request(`/api/v1/cotos/${COTO_ID}/miembros/${MIEMBRO_ID}`, {
       method: 'PATCH',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ rol: 'coto_comite' }),
+      body: JSON.stringify({ activo: false }),
     });
-    expect(patchOk.status).toBe(200);
+    expect(patchDesactivar.status).toBe(200);
+    expect(await patchDesactivar.json()).toMatchObject({ id: MIEMBRO_ID, activo: false, email: null, nombre: null });
 
-    const appSinPermiso = appConTx({ $queryRaw: async () => [{ ok: false }] });
+    // Comité no recibe email ni teléfono (LFPDPPP)
+    const appComite = appConTx({
+      $queryRaw: async () => [{ staff: true, contacto: false }],
+      miembroCoto: {
+        findMany: async ({ select }: { select: { usuario: { select: Record<string, boolean> } } }) => {
+          expect(select.usuario.select.email).toBeUndefined();
+          expect(select.usuario.select.telefono).toBeUndefined();
+          return [
+            {
+              ...mBase,
+              usuario: { nombre: 'Juan', apellidoPaterno: 'Pérez', apellidoMaterno: null },
+            },
+          ];
+        },
+      },
+    });
+    const resComite = await appComite.request(`/api/v1/cotos/${COTO_ID}/miembros`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(resComite.status).toBe(200);
+    expect(await resComite.json()).toMatchObject({
+      datos: [{ id: MIEMBRO_ID, nombre: 'Juan', email: null, telefono: null }],
+    });
+
+    const appSinPermiso = appConTx({ $queryRaw: async () => [{ staff: false, contacto: false }] });
     expect(
       (
         await appSinPermiso.request(`/api/v1/cotos/${COTO_ID}/miembros`, {

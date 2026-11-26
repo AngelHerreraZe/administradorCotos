@@ -17,6 +17,7 @@ export function procesadorCorreo(deps: ProcesadorCorreoDeps) {
     const res = await enviarCorreo(datos, {
       apiKey: deps.apiKey,
       from: deps.from,
+      ...(job.id ? { idempotencyKey: job.id } : {}),
       transport: deps.transport,
     });
     deps.log.info({ jobId: job.id, plantilla: datos.plantilla, emailId: res.id }, 'correo enviado');

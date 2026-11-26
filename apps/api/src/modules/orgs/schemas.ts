@@ -1,3 +1,4 @@
+import { Monto } from '@admcotos/shared';
 import { z } from '@hono/zod-openapi';
 
 const COLOR_HEX = /^#[0-9A-Fa-f]{6}$/;
@@ -87,10 +88,10 @@ export const CotoResumen = z
     zonaHoraria: z.string(),
     activo: z.boolean(),
     unidades: z.number().int(),
-    emitidoMes: z.string(),
-    cobradoMes: z.string(),
+    emitidoMes: Monto,
+    cobradoMes: Monto,
     pctCobrado: z.string().nullable(),
-    adeudoVencido: z.string(),
+    adeudoVencido: Monto,
     unidadesMorosas: z.number().int(),
     pagosPorRevisar: z.number().int(),
     ticketsAbiertos: z.number().int(),

@@ -3,7 +3,7 @@ import { requestId } from 'hono/request-id';
 import { autenticacion, autenticacionPreRegistro, crearResolvedorUsuario } from './middleware/auth.ts';
 import { manejarError, noEncontrado, validacion } from './middleware/errors.ts';
 import { registroPeticiones } from './middleware/logging.ts';
-import { limiteTasaGeneral } from './middleware/rate-limit.ts';
+import { limiteTasaPorIp, limiteTasaPorUsuario } from './middleware/rate-limit.ts';
 import { seguridad } from './middleware/security.ts';
 import { cotosRoutes } from './modules/cotos/routes.ts';
 import { invitacionesPreRegistroRoutes, invitacionesRoutes } from './modules/invitaciones/routes.ts';
@@ -36,17 +36,20 @@ export function createApp(deps: Deps) {
 
   const issuer = `${deps.env.SUPABASE_URL.replace(/\/$/, '')}/auth/v1`;
   const authBase = { jwks: deps.jwks, issuer, audience: deps.env.AUTH_AUDIENCE };
+  const porIp = limiteTasaPorIp(deps.limitador);
+  const porUsuario = limiteTasaPorUsuario(deps.limitador);
 
   const preRegistro = new OpenAPIHono<AppEnv>({ defaultHook: validacion });
-  preRegistro.use('/invitaciones/aceptar', autenticacionPreRegistro(authBase), limiteTasaGeneral(deps.limitador));
+  preRegistro.use('/invitaciones/aceptar', porIp, autenticacionPreRegistro(authBase), porUsuario);
   preRegistro.route('/', invitacionesPreRegistroRoutes(deps));
   app.route('/api/v1', preRegistro);
 
   const privado = new OpenAPIHono<AppEnv>({ defaultHook: validacion });
   privado.use(
     '*',
+    porIp,
     autenticacion({ ...authBase, resolverUsuario: crearResolvedorUsuario(deps.prisma) }),
-    limiteTasaGeneral(deps.limitador),
+    porUsuario,
   );
   privado.route('/', meRoutes(deps));
   privado.route('/', invitacionesRoutes(deps));

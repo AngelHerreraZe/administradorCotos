@@ -41,14 +41,15 @@ model StaffPlataforma {
 
 /// Ventana de soporte consentida (máx. 72 h, solo lectura).
 model SoporteAcceso {
-  id          String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId       String       @map("org_id") @db.Uuid
-  otorgadoPor String       @map("otorgado_por") @db.Uuid
-  ticketRef   String       @map("ticket_ref") @db.VarChar(50)
-  desde       DateTime     @default(now()) @db.Timestamptz
-  hasta       DateTime     @db.Timestamptz
-  revocadoEn  DateTime?    @map("revocado_en") @db.Timestamptz
-  createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamptz
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId             String    @map("org_id") @db.Uuid
+  otorgadoPor       String    @map("otorgado_por") @db.Uuid
+  ticketRef         String    @map("ticket_ref") @db.VarChar(50)
+  claveIdempotencia String?   @unique @map("clave_idempotencia") @db.VarChar(100)
+  desde             DateTime  @default(now()) @db.Timestamptz
+  hasta             DateTime  @db.Timestamptz
+  revocadoEn        DateTime? @map("revocado_en") @db.Timestamptz
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
   organizacion Organizacion @relation(fields: [orgId], references: [id])
   otorgante    Usuario      @relation(fields: [otorgadoPor], references: [id])
@@ -363,18 +364,19 @@ model MiembroCoto {
 /// Invitaciones de ingreso a un despacho o coto. La membresía nace solo
 /// cuando la persona prueba que controla el correo vía app.aceptar_invitacion().
 model InvitacionMiembro {
-  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId      String    @map("org_id") @db.Uuid
-  cotoId     String?   @map("coto_id") @db.Uuid
-  unidadId   String?   @map("unidad_id") @db.Uuid
-  email      String    @db.Citext
-  rol        String    @db.VarChar(30)
-  tokenHash  String    @unique @map("token_hash") @db.Char(64)
-  expiraEn   DateTime  @map("expira_en") @db.Timestamptz
-  aceptadaEn DateTime? @map("aceptada_en") @db.Timestamptz
-  revocadaEn DateTime? @map("revocada_en") @db.Timestamptz
-  creadaPor  String    @map("creada_por") @db.Uuid
-  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId             String    @map("org_id") @db.Uuid
+  cotoId            String?   @map("coto_id") @db.Uuid
+  unidadId          String?   @map("unidad_id") @db.Uuid
+  email             String    @db.Citext
+  rol               String    @db.VarChar(30)
+  tokenHash         String    @unique @map("token_hash") @db.Char(64)
+  claveIdempotencia String?   @unique @map("clave_idempotencia") @db.VarChar(100)
+  expiraEn          DateTime  @map("expira_en") @db.Timestamptz
+  aceptadaEn        DateTime? @map("aceptada_en") @db.Timestamptz
+  revocadaEn        DateTime? @map("revocada_en") @db.Timestamptz
+  creadaPor         String    @map("creada_por") @db.Uuid
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
   organizacion Organizacion @relation(fields: [orgId], references: [id], onDelete: Cascade)
   coto         Coto?        @relation(fields: [cotoId], references: [id], onDelete: Cascade)
@@ -383,6 +385,8 @@ model InvitacionMiembro {
 
   @@index([cotoId, createdAt(sort: Desc)])
   @@index([orgId, email])
+  @@index([unidadId])
+  @@index([creadaPor])
   @@map("invitaciones_miembro")
 }
 

@@ -84,22 +84,42 @@ describe('E2E Fase 1 contra PostgreSQL real (app_service + RLS)', () => {
     expect(postConMfa.status).toBe(201);
   });
 
-  test('invitación de punta a punta: crear, correo encolado, correo distinto 403, aceptar idempotente y /me', async () => {
+  test('invitación de punta a punta: idempotencia, #token=, auditoría con usuario_id real, aceptar y /me', async () => {
     const jwtAdmin = await ctx.firmarJwt(ctx.usuarios.adminA1.authId, { aal: 'aal2' });
     const emailInvitado = `nuevo-${crypto.randomUUID().slice(0, 8)}@alfa.mx`;
+    const idemKey = crypto.randomUUID();
 
-    const crear = await ctx.app.request(`/api/v1/cotos/${ctx.cotoA1}/invitaciones`, {
+    const crear1 = await ctx.app.request(`/api/v1/cotos/${ctx.cotoA1}/invitaciones`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${jwtAdmin}`, 'Content-Type': 'application/json' },
+      headers: {
+        Authorization: `Bearer ${jwtAdmin}`,
+        'Content-Type': 'application/json',
+        'Idempotency-Key': idemKey,
+      },
       body: JSON.stringify({ email: emailInvitado, rol: 'residente_propietario', unidadId: ctx.unidadA1B }),
     });
-    expect(crear.status).toBe(201);
-    const invDto = (await crear.json()) as { id: string };
+    expect(crear1.status).toBe(201);
+    const invDto = (await crear1.json()) as { id: string };
 
-    const correo = ctx.correos.find((c) => c.para === emailInvitado);
-    expect(correo?.datos.url).toBeDefined();
-    const urlCorreo = correo?.datos.url ?? '';
-    const token = new URL(urlCorreo).searchParams.get('token') ?? '';
+    // Misma Idempotency-Key -> 200, mismo id y un solo correo encolado
+    const crear2 = await ctx.app.request(`/api/v1/cotos/${ctx.cotoA1}/invitaciones`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${jwtAdmin}`,
+        'Content-Type': 'application/json',
+        'Idempotency-Key': idemKey,
+      },
+      body: JSON.stringify({ email: emailInvitado, rol: 'residente_propietario', unidadId: ctx.unidadA1B }),
+    });
+    expect(crear2.status).toBe(200);
+    expect((await crear2.json()) as { id: string }).toEqual(invDto);
+    const enviadosParaInvitado = ctx.correos.filter((c) => c.para === emailInvitado);
+    expect(enviadosParaInvitado).toHaveLength(1);
+
+    const urlCorreo = enviadosParaInvitado[0]?.datos.url ?? '';
+    const parsedUrl = new URL(urlCorreo);
+    expect(parsedUrl.search).toBe('');
+    const token = new URLSearchParams(parsedUrl.hash.replace(/^#/, '')).get('token') ?? '';
     expect(token.length).toBeGreaterThan(20);
 
     const authNuevo = crypto.randomUUID();
@@ -119,7 +139,6 @@ describe('E2E Fase 1 contra PostgreSQL real (app_service + RLS)', () => {
     const jwtCorrecto = await ctx.firmarJwt(authNuevo, {
       aal: 'aal1',
       email: emailInvitado,
-      emailVerified: true,
     });
     const aceptar1 = await ctx.app.request('/api/v1/invitaciones/aceptar', {
       method: 'POST',
@@ -128,6 +147,13 @@ describe('E2E Fase 1 contra PostgreSQL real (app_service + RLS)', () => {
     });
     expect(aceptar1.status).toBe(200);
     const body1 = (await aceptar1.json()) as { usuarioId: string };
+
+    // Verificar en audit_outbox que usuario_id sea el usuarios.id real (nunca auth_id)
+    const auditRows = await ctx.adminPrisma.$queryRaw<{ usuario_id: string | null }[]>`
+      SELECT usuario_id FROM audit_outbox WHERE recurso_id = ${invDto.id}::uuid AND accion = 'invitaciones_miembro.update'
+    `;
+    expect(auditRows).toHaveLength(1);
+    expect(auditRows[0]?.usuario_id).toBe(body1.usuarioId);
 
     // Idempotente en segundo intento
     const aceptar2 = await ctx.app.request('/api/v1/invitaciones/aceptar', {
@@ -192,7 +218,6 @@ describe('E2E Fase 1 contra PostgreSQL real (app_service + RLS)', () => {
   test('errores de Postgres (Prisma 7 + adapter-pg) llegan como Problem Details correctos', async () => {
     const jwtAdmin = await ctx.firmarJwt(ctx.usuarios.adminA1.authId, { aal: 'aal2' });
 
-    // Duplicado 23505 -> 409
     const dup = await ctx.app.request(`/api/v1/cotos/${ctx.cotoA1}/unidades`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${jwtAdmin}`, 'Content-Type': 'application/json' },
@@ -202,7 +227,6 @@ describe('E2E Fase 1 contra PostgreSQL real (app_service + RLS)', () => {
     expect(dup.headers.get('content-type')).toBe('application/problem+json');
     expect(await dup.json()).toMatchObject({ code: 'duplicado' });
 
-    // Referencia cruzada de coto (trigger tg_mismo_coto -> 23503 -> 422)
     const crossFk = await ctx.app.request(`/api/v1/cotos/${ctx.cotoA1}/unidades`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${jwtAdmin}`, 'Content-Type': 'application/json' },
@@ -212,8 +236,9 @@ describe('E2E Fase 1 contra PostgreSQL real (app_service + RLS)', () => {
     expect(await crossFk.json()).toMatchObject({ code: 'referencia_invalida' });
   });
 
-  test('despacho y directorio: /orgs/{id}/cotos, /orgs/{id}/soporte y /cotos/{id}/miembros', async () => {
+  test('despacho, soporte idempotente, directorio LFPDPPP y desactivación de miembro sin 500', async () => {
     const jwtOwner = await ctx.firmarJwt(ctx.usuarios.ownerA.authId, { aal: 'aal2' });
+    const jwtComite = await ctx.firmarJwt(ctx.usuarios.comiteA1.authId, { aal: 'aal1' });
     const jwtProp = await ctx.firmarJwt(ctx.usuarios.propA1.authId, { aal: 'aal1' });
 
     const resumen = await ctx.app.request(`/api/v1/orgs/${ctx.orgA}/cotos`, {
@@ -222,12 +247,30 @@ describe('E2E Fase 1 contra PostgreSQL real (app_service + RLS)', () => {
     expect(resumen.status).toBe(200);
     expect(((await resumen.json()) as { datos: unknown[] }).datos.length).toBeGreaterThanOrEqual(2);
 
-    const soporte = await ctx.app.request(`/api/v1/orgs/${ctx.orgA}/soporte`, {
+    const soporteIdem = crypto.randomUUID();
+    const sop1 = await ctx.app.request(`/api/v1/orgs/${ctx.orgA}/soporte`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${jwtOwner}`, 'Content-Type': 'application/json' },
+      headers: {
+        Authorization: `Bearer ${jwtOwner}`,
+        'Content-Type': 'application/json',
+        'Idempotency-Key': soporteIdem,
+      },
       body: JSON.stringify({ ticketRef: 'TICK-1', duracionHoras: 12 }),
     });
-    expect(soporte.status).toBe(201);
+    expect(sop1.status).toBe(201);
+    const sopDto = (await sop1.json()) as { id: string };
+
+    const sop2 = await ctx.app.request(`/api/v1/orgs/${ctx.orgA}/soporte`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${jwtOwner}`,
+        'Content-Type': 'application/json',
+        'Idempotency-Key': soporteIdem,
+      },
+      body: JSON.stringify({ ticketRef: 'TICK-1', duracionHoras: 12 }),
+    });
+    expect(sop2.status).toBe(200);
+    expect(await sop2.json()).toEqual(sopDto);
 
     expect(
       (
@@ -236,12 +279,41 @@ describe('E2E Fase 1 contra PostgreSQL real (app_service + RLS)', () => {
         })
       ).status,
     ).toBe(403);
-    expect(
-      (
-        await ctx.app.request(`/api/v1/cotos/${ctx.cotoA1}/miembros`, {
-          headers: { Authorization: `Bearer ${jwtOwner}` },
-        })
-      ).status,
-    ).toBe(200);
+
+    // Comité ve miembros sin email ni teléfono (LFPDPPP)
+    const dirComite = await ctx.app.request(`/api/v1/cotos/${ctx.cotoA1}/miembros`, {
+      headers: { Authorization: `Bearer ${jwtComite}` },
+    });
+    expect(dirComite.status).toBe(200);
+    const listaComite = (await dirComite.json()) as { datos: { email: string | null; telefono: string | null }[] };
+    expect(listaComite.datos.length).toBeGreaterThan(0);
+    for (const m of listaComite.datos) {
+      expect(m.email).toBeNull();
+      expect(m.telefono).toBeNull();
+    }
+
+    // Owner ve emails y puede desactivar un miembro sin romper GET/PATCH
+    const dirOwner = await ctx.app.request(`/api/v1/cotos/${ctx.cotoA1}/miembros`, {
+      headers: { Authorization: `Bearer ${jwtOwner}` },
+    });
+    expect(dirOwner.status).toBe(200);
+    const listaOwner = (await dirOwner.json()) as { datos: { id: string; usuarioId: string; email: string | null }[] };
+    const miembroComite = listaOwner.datos.find((m) => m.usuarioId === ctx.usuarios.comiteA1.id);
+    expect(miembroComite?.email).toBe(ctx.usuarios.comiteA1.email);
+
+    const desactivar = await ctx.app.request(`/api/v1/cotos/${ctx.cotoA1}/miembros/${miembroComite!.id}`, {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${jwtOwner}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ activo: false }),
+    });
+    expect(desactivar.status).toBe(200);
+    expect(await desactivar.json()).toMatchObject({ id: miembroComite!.id, activo: false });
+
+    const dirDespues = await ctx.app.request(`/api/v1/cotos/${ctx.cotoA1}/miembros`, {
+      headers: { Authorization: `Bearer ${jwtOwner}` },
+    });
+    expect(dirDespues.status).toBe(200);
+    const listaDespues = (await dirDespues.json()) as { datos: { id: string }[] };
+    expect(listaDespues.datos.some((m) => m.id === miembroComite!.id)).toBe(false);
   });
 });

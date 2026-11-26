@@ -1,6 +1,7 @@
 import { Paginacion } from '@admcotos/shared';
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi';
 import { respuestasError } from '../../lib/openapi.ts';
+import { extraerIdempotencyKey } from '../../lib/prisma.ts';
 import { conTenant, conTenantPreRegistro } from '../../lib/tenant.ts';
 import { limiteTasaEstricto } from '../../middleware/rate-limit.ts';
 import type { AppEnv, Deps } from '../../types.ts';
@@ -13,6 +14,10 @@ import {
   InvitacionParam,
 } from './schemas.ts';
 import * as servicio from './service.ts';
+
+const IdempotencyHeader = z.object({
+  'idempotency-key': z.uuid().optional(),
+});
 
 const aceptarRoute = createRoute({
   method: 'post',
@@ -34,13 +39,18 @@ const crearRoute = createRoute({
   path: '/cotos/{cotoId}/invitaciones',
   tags: ['invitaciones'],
   summary: 'Crear invitación de miembro para un coto y encolar correo',
-  description: 'Permiso en BD: `cotos_admin` con MFA. Límite: 60/hora por usuario.',
+  description: 'Permiso en BD: `cotos_admin` con MFA. Límite: 60/hora por usuario. Soporta `Idempotency-Key`.',
   security: [{ bearer: [] }],
   request: {
     params: CotoParam,
+    headers: IdempotencyHeader,
     body: { required: true, content: { 'application/json': { schema: CrearInvitacion } } },
   },
   responses: {
+    200: {
+      description: 'Invitación ya existente (idempotente)',
+      content: { 'application/json': { schema: InvitacionDto } },
+    },
     201: { description: 'Invitación creada', content: { 'application/json': { schema: InvitacionDto } } },
     ...respuestasError(401, 403, 404, 422, 429),
   },
@@ -101,12 +111,18 @@ export function invitacionesRoutes(deps: Pick<Deps, 'prisma' | 'env' | 'limitado
     .openapi(crearRoute, async (c) => {
       const { cotoId } = c.req.valid('param');
       const { usuarioId } = c.get('auth');
+      const idempotencyKey = extraerIdempotencyKey(c.req.header('Idempotency-Key'));
       const datos = c.req.valid('json');
-      const creado = await conTenant(c, deps, cotoId, (tx) =>
-        servicio.crear(tx, { cotoId, usuarioId, datos, appPublicUrl: deps.env.APP_PUBLIC_URL }),
+      const res = await conTenant(c, deps, cotoId, (tx) =>
+        servicio.crear(tx, { cotoId, usuarioId, datos, appPublicUrl: deps.env.APP_PUBLIC_URL, idempotencyKey }),
       );
-      await deps.encolarCorreo(creado.correo, { jobId: creado.jobId });
-      return c.json(creado.dto, 201, { Location: `/api/v1/invitaciones/${creado.dto.id}` });
+      if (!res.creado) {
+        return c.json(res.dto, 200);
+      }
+      if (res.correo) {
+        await deps.encolarCorreo(res.correo, { jobId: res.jobId });
+      }
+      return c.json(res.dto, 201, { Location: `/api/v1/invitaciones/${res.dto.id}` });
     })
     .openapi(listarRoute, async (c) => {
       const { cotoId } = c.req.valid('param');

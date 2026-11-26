@@ -14,6 +14,6 @@ export type PayloadCorreo = z.infer<typeof Colas.correo>;
 export const OPCIONES_JOB_CORREO = {
   attempts: 5,
   backoff: { type: 'exponential', delay: 5_000 },
-  removeOnComplete: 1_000,
-  removeOnFail: 10_000,
+  removeOnComplete: true,
+  removeOnFail: { age: 3_600 },
 } as const;

@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import { test } from 'vitest';
 import { calculateAuditHash, verifyAuditLink } from '../src/audit-chain.ts';
 import { decryptField, encryptField, keyringFromEnv, keyVersionOf } from '../src/crypto-vault.ts';
-import { signDbContext } from '../src/tenant-context.ts';
+import { signDbContext, signPreAuthContext } from '../src/tenant-context.ts';
 
 const k1 = crypto.randomBytes(32).toString('base64');
 const k2 = crypto.randomBytes(32).toString('base64');
@@ -54,6 +54,10 @@ test('contexto RLS v2: formato con aal que valida app.uid()/app.aal() y UUID est
   const ctxAal2 = signDbContext(ORG_A, secret, { aal: 'aal2', ttlSeconds: 60 });
   assert.equal(ctxAal2.split('.')[1], 'aal2');
 
+  const preCtx = signPreAuthContext(ORG_A, secret, { aal: 'aal1' });
+  assert.match(preCtx, /^auth\.[0-9a-f-]{36}\.aal1\.[0-9]{10}\.[0-9a-f]{64}$/);
+
   assert.throws(() => signDbContext("x' OR 1=1 --", secret));
+  assert.throws(() => signPreAuthContext('invalido', secret));
   assert.throws(() => signDbContext(ORG_A, Buffer.alloc(8)));
 });

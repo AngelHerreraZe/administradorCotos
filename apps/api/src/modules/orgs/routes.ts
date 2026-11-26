@@ -1,5 +1,6 @@
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi';
 import { respuestasError } from '../../lib/openapi.ts';
+import { extraerIdempotencyKey } from '../../lib/prisma.ts';
 import { conTenant } from '../../lib/tenant.ts';
 import type { AppEnv, Deps } from '../../types.ts';
 import { Coto } from '../cotos/schemas.ts';
@@ -13,6 +14,10 @@ import {
   SoporteAccesoDto,
 } from './schemas.ts';
 import * as servicio from './service.ts';
+
+const IdempotencyHeader = z.object({
+  'idempotency-key': z.uuid().optional(),
+});
 
 const obtener = createRoute({
   method: 'get',
@@ -84,15 +89,20 @@ const abrirSoporte = createRoute({
   path: '/orgs/{orgId}/soporte',
   tags: ['organizaciones'],
   summary: 'Abrir ventana temporal de soporte técnico de solo lectura (≤ 72 h)',
-  description: 'Permiso en BD: `orgs_owner` con MFA.',
+  description: 'Permiso en BD: `orgs_owner` con MFA. Soporta `Idempotency-Key`.',
   security: [{ bearer: [] }],
   request: {
     params: OrgParam,
+    headers: IdempotencyHeader,
     body: { required: true, content: { 'application/json': { schema: CrearSoporte } } },
   },
   responses: {
+    200: {
+      description: 'Ventana ya existente (idempotente)',
+      content: { 'application/json': { schema: SoporteAccesoDto } },
+    },
     201: { description: 'Ventana de soporte creada', content: { 'application/json': { schema: SoporteAccesoDto } } },
-    ...respuestasError(401, 403, 422),
+    ...respuestasError(401, 403, 409, 422),
   },
 });
 
@@ -120,8 +130,11 @@ export function orgsRoutes(deps: Pick<Deps, 'prisma'>) {
     .openapi(abrirSoporte, async (c) => {
       const { orgId } = c.req.valid('param');
       const { usuarioId } = c.get('auth');
+      const idempotencyKey = extraerIdempotencyKey(c.req.header('Idempotency-Key'));
       const datos = c.req.valid('json');
-      const acceso = await conTenant(c, deps, undefined, (tx) => servicio.abrirSoporte(tx, orgId, usuarioId, datos));
-      return c.json(acceso, 201, { Location: `/api/v1/orgs/${orgId}/soporte/${acceso.id}` });
+      const res = await conTenant(c, deps, undefined, (tx) =>
+        servicio.abrirSoporte(tx, orgId, usuarioId, datos, idempotencyKey),
+      );
+      return c.json(res.dato, res.creado ? 201 : 200);
     });
 }

@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import type { Prisma } from '@admcotos/db';
 import { AppError, type PayloadCorreo, Uuid } from '@admcotos/shared';
 import type { z } from '@hono/zod-openapi';
-import { actualizarConRls } from '../../lib/prisma.ts';
+import { actualizarConRls, conIdempotencia } from '../../lib/prisma.ts';
 import type { AceptarInvitacion, CrearInvitacion, InvitacionDto } from './schemas.ts';
 
 const selectInv = {
@@ -44,9 +44,10 @@ export async function crear(
     usuarioId: string;
     datos: z.infer<typeof CrearInvitacion>;
     appPublicUrl: string;
+    idempotencyKey?: string;
   },
-): Promise<{ dto: z.infer<typeof InvitacionDto>; correo: PayloadCorreo; jobId: string }> {
-  const { cotoId, usuarioId, datos, appPublicUrl } = params;
+): Promise<{ creado: boolean; dto: z.infer<typeof InvitacionDto>; correo?: PayloadCorreo; jobId?: string }> {
+  const { cotoId, usuarioId, datos, appPublicUrl, idempotencyKey } = params;
   const [perm] = await tx.$queryRaw<{ ok: boolean }[]>`SELECT (${cotoId}::uuid = ANY (app.cotos_admin())) AS ok`;
   if (!perm?.ok) throw new AppError(403, 'sin_permiso', 'No tienes permiso para invitar miembros en este coto');
 
@@ -60,35 +61,52 @@ export async function crear(
 
   const token = crypto.randomBytes(32).toString('base64url');
   const tokenHash = hashToken(token);
-  const ahora = new Date();
-  const expiraEn = new Date(ahora.getTime() + datos.diasVigencia * 86_400_000);
+  const claveIdempotencia = idempotencyKey ? `api:${usuarioId}:${idempotencyKey}` : undefined;
+  // Descontamos 60 s cuando son 7 días para absorber diferencias menores de reloj frente a DEFAULT now() en BD.
+  const msVigencia = datos.diasVigencia * 86_400_000 - (datos.diasVigencia === 7 ? 60_000 : 0);
+  const expiraEn = new Date(Date.now() + msVigencia);
 
-  const inv = await tx.invitacionMiembro.create({
-    data: {
-      orgId: coto.orgId,
-      cotoId: coto.id,
-      unidadId: datos.unidadId ?? null,
-      email: datos.email,
-      rol: datos.rol,
-      tokenHash,
-      expiraEn,
-      creadaPor: usuarioId,
-      createdAt: ahora,
-    },
-    select: selectInv,
-  });
+  const res = await conIdempotencia(
+    tx,
+    claveIdempotencia,
+    () =>
+      tx.invitacionMiembro.create({
+        data: {
+          orgId: coto.orgId,
+          cotoId: coto.id,
+          unidadId: datos.unidadId ?? null,
+          email: datos.email,
+          rol: datos.rol,
+          tokenHash,
+          ...(claveIdempotencia ? { claveIdempotencia } : {}),
+          expiraEn,
+          creadaPor: usuarioId,
+        },
+        select: selectInv,
+      }),
+    () =>
+      tx.invitacionMiembro.findFirst({
+        where: { claveIdempotencia, cotoId: coto.id },
+        select: selectInv,
+      }),
+  );
+
+  if (!res.creado) {
+    return { creado: false, dto: aDto(res.dato) };
+  }
 
   const baseUrl = appPublicUrl.replace(/\/$/, '');
   return {
-    dto: aDto(inv),
-    jobId: `inv:${inv.id}`,
+    creado: true,
+    dto: aDto(res.dato),
+    jobId: `inv:${res.dato.id}`,
     correo: {
       plantilla: 'invitacion',
       para: datos.email,
       datos: {
         coto: coto.nombre,
         rol: datos.rol,
-        url: `${baseUrl}/invitaciones/aceptar?token=${token}`,
+        url: `${baseUrl}/invitaciones/aceptar#token=${token}`,
         expira: `${datos.diasVigencia} ${datos.diasVigencia === 1 ? 'día' : 'días'}`,
       },
     },

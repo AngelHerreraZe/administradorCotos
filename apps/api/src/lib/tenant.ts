@@ -1,4 +1,4 @@
-import { type Prisma, withTenant } from '@admcotos/db';
+import { type Prisma, withPreAuthTenant, withTenant } from '@admcotos/db';
 import { AppError, Uuid } from '@admcotos/shared';
 import type { Context } from 'hono';
 import type { AppEnv, Deps } from '../types.ts';
@@ -32,12 +32,12 @@ export function conTenant<T>(
   );
 }
 
-/** Usado únicamente al aceptar una invitación antes de tener fila en `usuarios`. */
+/** Usado únicamente al aceptar una invitación antes de tener fila en `usuarios` (contexto firmado `auth.<auth_id>`). */
 export function conTenantPreRegistro<T>(
   c: Context<AppEnv>,
   deps: Pick<Deps, 'prisma'>,
   fn: (tx: Prisma.TransactionClient) => Promise<T>,
 ): Promise<T> {
   const { authId, aal } = c.get('authPre');
-  return withTenant(deps.prisma, { userId: authId, aal, requestId: c.get('requestId') }, fn);
+  return withPreAuthTenant(deps.prisma, { authId, aal, requestId: c.get('requestId') }, fn);
 }

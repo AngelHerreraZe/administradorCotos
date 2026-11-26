@@ -3,19 +3,23 @@ import { Resend } from 'resend';
 
 export interface CorreoTransport {
   emails: {
-    send(payload: {
-      from: string;
-      to: string[];
-      subject: string;
-      text: string;
-      html: string;
-    }): Promise<{ data: { id: string } | null; error: { message: string; name?: string } | null }>;
+    send(
+      payload: {
+        from: string;
+        to: string[];
+        subject: string;
+        text: string;
+        html: string;
+      },
+      options?: { idempotencyKey?: string },
+    ): Promise<{ data: { id: string } | null; error: { message: string; name?: string } | null }>;
   };
 }
 
 export interface OpcionesCorreo {
   apiKey: string;
   from: string;
+  idempotencyKey?: string;
   transport?: CorreoTransport;
 }
 
@@ -111,13 +115,17 @@ export function renderizarCorreo(
 export async function enviarCorreo(params: PayloadCorreo, opciones: OpcionesCorreo): Promise<{ id: string }> {
   const cliente: CorreoTransport = opciones.transport ?? new Resend(opciones.apiKey);
   const { subject, text, html } = renderizarCorreo(params.plantilla, params.datos);
-  const res = await cliente.emails.send({
-    from: opciones.from,
-    to: [params.para],
-    subject,
-    text,
-    html,
-  });
+  const requestOpts = opciones.idempotencyKey ? { idempotencyKey: opciones.idempotencyKey } : undefined;
+  const res = await cliente.emails.send(
+    {
+      from: opciones.from,
+      to: [params.para],
+      subject,
+      text,
+      html,
+    },
+    requestOpts,
+  );
   if (res.error || !res.data?.id) {
     throw new Error(`No se pudo enviar correo (${params.plantilla}): ${res.error?.message ?? 'sin id'}`);
   }

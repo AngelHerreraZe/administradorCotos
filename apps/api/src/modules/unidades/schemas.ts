@@ -42,7 +42,7 @@ export const CrearUnidad = z
 export const ActualizarUnidad = z
   .object({
     numero: z.string().trim().min(1).max(20).optional(),
-    tipo: TipoSectorUnidadOrTipo(),
+    tipo: TipoUnidad.optional(),
     sectorId: z.uuid().nullable().optional(),
     superficieM2: z.string().regex(SuperficieRegex).nullable().optional(),
     indiviso: z.string().regex(IndivisoRegex).nullable().optional(),
@@ -51,10 +51,6 @@ export const ActualizarUnidad = z
   })
   .strict()
   .openapi('ActualizarUnidad');
-
-function TipoSectorUnidadOrTipo() {
-  return TipoUnidad.optional();
-}
 
 export const ResultadoImportacion = z
   .object({

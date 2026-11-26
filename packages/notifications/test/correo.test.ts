@@ -17,12 +17,18 @@ describe('correo transaccional', () => {
     expect(text).not.toContain('javascript:');
   });
 
-  test('renderiza y envía plantilla de invitación con URL https válida', async () => {
-    const enviados: { from: string; to: string[]; subject: string; text: string; html: string }[] = [];
+  test('renderiza y envía plantilla de invitación con URL https válida e idempotencyKey', async () => {
+    const enviados: {
+      payload: { from: string; to: string[]; subject: string; text: string; html: string };
+      options?: { idempotencyKey?: string };
+    }[] = [];
     const transport = {
       emails: {
-        async send(payload: { from: string; to: string[]; subject: string; text: string; html: string }) {
-          enviados.push(payload);
+        async send(
+          payload: { from: string; to: string[]; subject: string; text: string; html: string },
+          options?: { idempotencyKey?: string },
+        ) {
+          enviados.push({ payload, options });
           return { data: { id: 'email_123' }, error: null };
         },
       },
@@ -35,17 +41,23 @@ describe('correo transaccional', () => {
         datos: {
           coto: 'Miraflores',
           rol: 'residente_propietario',
-          url: 'https://app.admcotos.mx/invitaciones?token=abc',
+          url: 'https://app.admcotos.mx/invitaciones#token=abc',
           expira: '7 días',
         },
       },
-      { apiKey: 're_test', from: 'Administrador de Cotos <notificaciones@admcotos.mx>', transport },
+      {
+        apiKey: 're_test',
+        from: 'Administrador de Cotos <notificaciones@admcotos.mx>',
+        idempotencyKey: 'inv-123',
+        transport,
+      },
     );
 
     expect(res).toEqual({ id: 'email_123' });
     expect(enviados).toHaveLength(1);
-    expect(enviados[0]?.html).toContain('https://app.admcotos.mx/invitaciones?token=abc');
-    expect(enviados[0]?.text).toContain('Miraflores');
+    expect(enviados[0]?.payload.html).toContain('https://app.admcotos.mx/invitaciones#token=abc');
+    expect(enviados[0]?.payload.text).toContain('Miraflores');
+    expect(enviados[0]?.options).toEqual({ idempotencyKey: 'inv-123' });
   });
 
   test('propaga error del proveedor sin incluir la dirección del destinatario', async () => {
