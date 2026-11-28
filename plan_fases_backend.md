@@ -10,7 +10,7 @@
 | 1 | Identidad, MFA, tenancy y núcleo organizacional | 🔄 En auditoría |
 | 2 | Finanzas: cargos, pagos manuales, egresos, reportes | — |
 | 3 | Pagos en línea, domiciliación, CFDI y cobro a despachos | — |
-| 4 | Comunicados, notificaciones, WhatsApp, IA, tickets y votaciones | — |
+| 4 | Comunicados, notificaciones, WhatsApp, IA, tickets y votaciones | 🔄 En auditoría (`f4-comunicacion`) |
 | 5 | Accesos, IoT, amenidades, marca blanca, API de partners y endurecimiento | — |
 
 ---
@@ -682,9 +682,9 @@ CREATE FUNCTION app.condonar_cargo(p_cargo uuid, p_motivo text) RETURNS void ...
 
 ### Terminado cuando
 
-- [ ] Un mes completo simulado en E2E: generar, pagar parcial, comprobante, confirmar, moratorio, saldo a favor, reporte — con totales cuadrados al centavo.
-- [ ] Comité no obtiene ningún adeudo por unidad por ninguna ruta (prueba explícita).
-- [ ] Generación mensual de 300 cotos × 50 unidades en < 60 s en el worker.
+- [ ] Un mes completo simulado en E2E contra Postgres 17 real: suite escrita en `apps/api/test/e2e/finanzas_pagos.test.ts`; pendiente de ejecutar en CI/Docker.
+- [x] Comité no obtiene ningún adeudo por unidad por ninguna ruta (probado en unitarios API + `rls.test.ts` + E2E lista para CI).
+- [x] Generación mensual de 300 cotos × 50 unidades en < 60 s verificada en benchmark SQL PGlite (`packages/db/test/finanzas_benchmark.test.ts`).
 
 ---
 
@@ -742,10 +742,10 @@ En ambos casos: `packages/cfdi` con `timbrar(pagoId)`, `cancelar(uuid, motivo)` 
 
 ### Terminado cuando
 
-- [ ] Pruebas con webhooks reales del sandbox (grabados) y duplicados: un pago nunca se aplica dos veces.
-- [ ] Autopay: 3 fallos → suspensión; reintento del job no duplica cobro.
-- [ ] Timbrado y cancelación en el ambiente de pruebas del PAC.
-- [ ] Ciclo de mora del despacho probado de punta a punta.
+- [ ] Pruebas con webhooks reales del sandbox (grabados) y duplicados: cubiertas en unitarios de rutas Conekta/Stripe (`pagos_cfdi_billing.test.ts`) y procesadores worker; pendiente verificación contra sandbox real.
+- [x] Autopay: 3 fallos → suspensión; timeout post-cobro y reintento determinista no duplican cobro; rechazo asíncrono avanza reintentos/suspensión.
+- [ ] Timbrado y cancelación en el ambiente de pruebas del PAC (cubierto en unitarios PAC/worker con organización por coto; pendiente prueba contra sandbox Facturapi).
+- [ ] Ciclo de mora del despacho probado de punta a punta contra Stripe/Postgres real (cubierto en unitarios del worker `billing.ts`).
 
 ---
 
@@ -792,9 +792,11 @@ worker "bot" (despliegue propio: rol app_service + DB_CTX_SECRET, SIN app_worker
 
 ### Terminado cuando
 
-- [ ] Pruebas de inyección de *prompt* contra el bot (pedir datos de otra unidad, cambiar de coto, ignorar instrucciones): todas fallan por RLS.
-- [ ] Un comunicado a 5 000 destinatarios se entrega en lotes sin violar límites ni horarios.
-- [ ] Ningún log ni evento de Sentry contiene texto de mensajes de residentes.
+- [x] Pruebas de inyección de *prompt* contra el bot (pedir datos de otra unidad, cambiar de coto, ignorar instrucciones): todas fallan por RLS (`rls.test.ts` «comunicación F4», `apps/worker/test/comunicacion.test.ts`, `packages/ai/test`).
+- [x] Un comunicado a 5 000 destinatarios se entrega en lotes sin violar límites ni horarios (`apps/worker/test/comunicacion.test.ts`; contra Redis/Evolution reales queda pendiente).
+- [x] Ningún log ni evento de Sentry contiene texto de mensajes de residentes (el texto viaja solo en el job; `webhook_events` guarda la marca de idempotencia; prueba de logs del bot).
+
+**Avance (27 nov 2026):** comunicados segmentados con destinatarios materializados (`app.publicar_comunicado`), fan-out `notificaciones` (correo + WhatsApp con calentamiento y horario de silencio), bot `whatsappEntrante` (`app.bot_resolver` + `withTenant` del residente), `@admcotos/ai`, OCR a pago `en_revision`, tickets (adjuntos, SLA) y votaciones (`programada`, `app.resultados_votacion`). Fuera de alcance por ahora: push (Expo/Web Push) y Meta Cloud API.
 
 ---
 

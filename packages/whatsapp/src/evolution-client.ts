@@ -117,6 +117,14 @@ export class EvolutionApiClient {
     });
   }
 
+  /** Descarga (descifrada) la imagen o documento de un mensaje recibido. */
+  async getBase64FromMediaMessage(instanceName: string, messageId: string) {
+    return this.request<{ base64: string; mimetype: string }>(`/chat/getBase64FromMediaMessage/${instanceName}`, {
+      method: 'POST',
+      body: JSON.stringify({ message: { key: { id: messageId } }, convertToMp4: false }),
+    });
+  }
+
   /**
    * Envía tarjeta de contacto (vCard) para que el residente guarde el número
    */

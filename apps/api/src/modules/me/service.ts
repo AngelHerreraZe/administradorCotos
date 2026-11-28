@@ -15,6 +15,8 @@ const selectUsuario = {
   aceptoAvisoPrivacidad: true,
   fechaAceptacionAviso: true,
   versionAvisoAceptado: true,
+  notifCorreo: true,
+  notifWhatsapp: true,
 } as const;
 
 interface FilaMembresia {

@@ -61,6 +61,14 @@ describe('CORS', () => {
     const res = await preflight('https://evil.example');
     expect(res.headers.get('access-control-allow-origin')).toBeNull();
   });
+
+  test('/webhooks queda fuera de CORS incluso con origen permitido', async () => {
+    const res = await app.request('/webhooks/conekta', {
+      method: 'OPTIONS',
+      headers: { Origin: 'https://app.admcotos.mx', 'Access-Control-Request-Method': 'POST' },
+    });
+    expect(res.headers.get('access-control-allow-origin')).toBeNull();
+  });
 });
 
 describe('errores como Problem Details (RFC 9457)', () => {
@@ -125,5 +133,12 @@ describe('documentación OpenAPI', () => {
     expect(doc.paths).toHaveProperty('/api/v1/cotos/{cotoId}/unidades');
     expect(doc.paths).toHaveProperty('/api/v1/cotos/{cotoId}/unidades/importar');
     expect(doc.paths).toHaveProperty('/api/v1/cotos/{cotoId}/miembros');
+    expect(doc.paths).toHaveProperty('/api/v1/cotos/{cotoId}/conceptos');
+    expect(doc.paths).toHaveProperty('/api/v1/cotos/{cotoId}/cargos/generar');
+    expect(doc.paths).toHaveProperty('/api/v1/unidades/{id}/estado-cuenta.pdf');
+    expect(doc.paths).toHaveProperty('/api/v1/cotos/{cotoId}/pagos/online');
+    expect(doc.paths).toHaveProperty('/api/v1/unidades/{id}/autopay');
+    expect(doc.paths).toHaveProperty('/api/v1/cotos/{cotoId}/facturacion/timbrar/{pagoId}');
+    expect(doc.paths).toHaveProperty('/api/v1/orgs/{id}/billing/portal');
   });
 });

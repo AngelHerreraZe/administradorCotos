@@ -4,14 +4,27 @@ import { autenticacion, autenticacionPreRegistro, crearResolvedorUsuario } from 
 import { manejarError, noEncontrado, validacion } from './middleware/errors.ts';
 import { registroPeticiones } from './middleware/logging.ts';
 import { limiteTasaPorIp, limiteTasaPorUsuario } from './middleware/rate-limit.ts';
-import { seguridad } from './middleware/security.ts';
+import { seguridadBase, seguridadCors } from './middleware/security.ts';
+import { autopayRoutes } from './modules/autopay/routes.ts';
+import { billingRoutes } from './modules/billing/routes.ts';
+import { cargosRoutes } from './modules/cargos/routes.ts';
+import { cfdiRoutes } from './modules/cfdi/routes.ts';
+import { comunicadosRoutes } from './modules/comunicados/routes.ts';
+import { conceptosRoutes } from './modules/conceptos/routes.ts';
 import { cotosRoutes } from './modules/cotos/routes.ts';
+import { egresosRoutes } from './modules/egresos/routes.ts';
+import { estadoCuentaRoutes } from './modules/estado-cuenta/routes.ts';
 import { invitacionesPreRegistroRoutes, invitacionesRoutes } from './modules/invitaciones/routes.ts';
 import { meRoutes } from './modules/me/routes.ts';
 import { miembrosRoutes } from './modules/miembros/routes.ts';
 import { orgsRoutes } from './modules/orgs/routes.ts';
+import { pagosRoutes } from './modules/pagos/routes.ts';
+import { reportesRoutes } from './modules/reportes/routes.ts';
 import { sectoresRoutes } from './modules/sectores/routes.ts';
+import { ticketsRoutes } from './modules/tickets/routes.ts';
 import { unidadesRoutes } from './modules/unidades/routes.ts';
+import { votacionesRoutes } from './modules/votaciones/routes.ts';
+import { webhooksRoutes } from './modules/webhooks/routes.ts';
 import { healthRoutes } from './routes/health.ts';
 import type { AppEnv, Deps } from './types.ts';
 
@@ -29,9 +42,17 @@ export function createApp(deps: Deps) {
 
   app.use(requestId({ headerName: 'X-Request-Id' }));
   app.use(registroPeticiones(deps.log));
-  for (const mw of seguridad(deps.env)) app.use(mw);
+  for (const mw of seguridadBase()) app.use(mw);
 
-  // Rutas públicas antes de la autenticación
+  // Webhooks públicos: fuera de autenticación y fuera de CORS.
+  app.route('/webhooks', webhooksRoutes(deps));
+
+  const corsMw = seguridadCors(deps.env);
+  app.use('/health/*', corsMw);
+  app.use('/api/*', corsMw);
+  app.use('/openapi.json', corsMw);
+
+  // Rutas públicas web
   app.route('/health', healthRoutes(deps));
 
   const issuer = `${deps.env.SUPABASE_URL.replace(/\/$/, '')}/auth/v1`;
@@ -58,6 +79,18 @@ export function createApp(deps: Deps) {
   privado.route('/', sectoresRoutes(deps));
   privado.route('/', unidadesRoutes(deps));
   privado.route('/', miembrosRoutes(deps));
+  privado.route('/', conceptosRoutes(deps));
+  privado.route('/', cargosRoutes(deps));
+  privado.route('/', estadoCuentaRoutes(deps));
+  privado.route('/', pagosRoutes(deps));
+  privado.route('/', egresosRoutes(deps));
+  privado.route('/', reportesRoutes(deps));
+  privado.route('/', autopayRoutes(deps));
+  privado.route('/', cfdiRoutes(deps));
+  privado.route('/', billingRoutes(deps));
+  privado.route('/', comunicadosRoutes(deps));
+  privado.route('/', ticketsRoutes(deps));
+  privado.route('/', votacionesRoutes(deps));
   app.route('/api/v1', privado);
 
   if (deps.env.API_DOCS) {

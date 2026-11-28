@@ -1,0 +1,6 @@
+{
+  "includeGitInstructions": false,
+  "permissions": {
+    "deny": ["Bash(git *)", "PowerShell(git *)", "Bash(gh *)", "PowerShell(gh *)"]
+  }
+}

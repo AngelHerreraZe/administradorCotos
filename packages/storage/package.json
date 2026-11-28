@@ -1,0 +1,19 @@
+{
+  "name": "@admcotos/storage",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@admcotos/shared": "*",
+    "@aws-sdk/client-s3": "3.1178.0",
+    "@aws-sdk/s3-presigned-post": "3.1178.0",
+    "@aws-sdk/s3-request-presigner": "3.1178.0"
+  }
+}

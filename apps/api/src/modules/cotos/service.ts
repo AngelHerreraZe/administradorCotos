@@ -21,6 +21,7 @@ export const selectCoto = {
   diaLimitePago: true,
   tasaMoratoria: true,
   tipoMoratoria: true,
+  baseMoratoria: true,
   descuentoProntoPago: true,
   diasGracia: true,
   bloquearAmenidadesMorosos: true,
@@ -35,6 +36,7 @@ export const selectCoto = {
 export function aDto(c: Prisma.CotoGetPayload<{ select: typeof selectCoto }>): z.infer<typeof Coto> {
   return {
     ...c,
+    baseMoratoria: c.baseMoratoria as 'capital' | 'saldo',
     tasaMoratoria: c.tasaMoratoria.toString(),
     descuentoProntoPago: c.descuentoProntoPago.toString(),
   };

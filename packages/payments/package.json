@@ -1,0 +1,18 @@
+{
+  "name": "@admcotos/payments",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@admcotos/shared": "*",
+    "conekta": "9.0.11",
+    "stripe": "23.2.0"
+  }
+}

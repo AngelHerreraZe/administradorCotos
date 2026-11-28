@@ -10,9 +10,14 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@admcotos/ai": "*",
+    "@admcotos/cfdi": "*",
     "@admcotos/db": "*",
     "@admcotos/notifications": "*",
+    "@admcotos/payments": "*",
     "@admcotos/shared": "*",
+    "@admcotos/storage": "*",
+    "@admcotos/whatsapp": "*",
     "@sentry/node": "11.19.0",
     "bullmq": "6.7.10",
     "ioredis": "6.1.0",

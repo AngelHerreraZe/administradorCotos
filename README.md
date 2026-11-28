@@ -58,8 +58,8 @@ Gemini (Antigravity) implementa y Claude Code audita: nada llega a `main` sin di
 Configuración, una vez:
 
 1. **GitHub** → *Settings › Rules* para `main`: exigir PR y los checks `check`, `migraciones-postgres` y `auditoria`.
-2. **Antigravity**: abre la raíz del repo (carga `AGENTS.md` y la skill `implementar`). *Plan Review Policy*: *Always Ask*. Permisos: preset *Default* y en *Deny* `command(git push)`, `command(git pull)`, `command(git fetch)`, `command(git merge)`, `command(gh)`. Ningún agente toca GitHub.
-3. **Claude Code**: nada; `/auditar` vive en `.claude/skills/`.
+2. **Antigravity**: abre la raíz del repo (carga `AGENTS.md` y la skill `implementar`). *Plan Review Policy*: *Always Ask*. Permisos: preset *Default* y en *Deny* `command(git)` y `command(gh)`. Ningún agente usa git ni GitHub.
+3. **Claude Code**: nada; `.claude/settings.json` le niega `git` y `gh`, y `/auditar` vive en `.claude/skills/`.
 
 ## Seguridad en una línea por capa
 

@@ -58,7 +58,21 @@ export const SENTRY_SIN_PII = {
   stackFrameVariables: false,
 };
 
-export { type Cola, Colas, OPCIONES_JOB_CORREO, type PayloadCorreo } from './colas.ts';
+export {
+  type Cola,
+  Colas,
+  OPCIONES_JOB_CORREO,
+  OPCIONES_JOB_ESTANDAR,
+  type PayloadAutopay,
+  type PayloadBilling,
+  type PayloadCfdi,
+  type PayloadCorreo,
+  type PayloadFinanzas,
+  type PayloadGobernanza,
+  type PayloadNotificaciones,
+  type PayloadPagosWebhook,
+  type PayloadWhatsappEntrante,
+} from './colas.ts';
 export const Uuid = z.uuid();
 export const Periodo = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'Usa el formato AAAA-MM');
 /** Dinero siempre como texto decimal con 2 decimales máximo: nunca float. */

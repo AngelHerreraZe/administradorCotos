@@ -1,0 +1,17 @@
+{
+  "name": "@admcotos/cfdi",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@admcotos/shared": "*",
+    "facturapi": "6.1.0"
+  }
+}

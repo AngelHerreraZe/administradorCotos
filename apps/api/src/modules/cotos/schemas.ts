@@ -22,6 +22,7 @@ export const Coto = z
     diaLimitePago: z.number().int(),
     tasaMoratoria: z.string(),
     tipoMoratoria: z.string(),
+    baseMoratoria: z.enum(['capital', 'saldo']),
     descuentoProntoPago: z.string(),
     diasGracia: z.number().int(),
     bloquearAmenidadesMorosos: z.boolean(),
@@ -56,6 +57,7 @@ export const ActualizarCoto = z
       .regex(/^\d{1,3}(\.\d{1,2})?$/)
       .optional(),
     tipoMoratoria: z.enum(['ninguno', 'porcentaje', 'fijo']).optional(),
+    baseMoratoria: z.enum(['capital', 'saldo']).optional(),
     descuentoProntoPago: z
       .string()
       .regex(/^\d{1,3}(\.\d{1,2})?$/)

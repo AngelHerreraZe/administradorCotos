@@ -1,0 +1,2 @@
+# LF siempre, con cualquier core.autocrlf: Biome exige LF y Windows no debe reescribir archivos al hacer checkout.
+* text=auto eol=lf

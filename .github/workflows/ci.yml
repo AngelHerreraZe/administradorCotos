@@ -90,7 +90,8 @@ jobs:
 
   auditoria:
     # Flujo Gemini → Claude (AGENTS.md §8): el código del PR es exactamente el que Claude aprobó.
-    # Dependabot (minor/patch) queda fuera; un job omitido cuenta como éxito en los checks requeridos.
+    # Los agentes no usan git: el dictamen firma la huella del contenido (scripts/huella.ts), no un commit.
+    # Rama feat/<id> → auditorias/<id>/. Dependabot (minor/patch) queda fuera; un job omitido cuenta como éxito.
     if: github.event_name == 'pull_request' && github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -98,17 +99,21 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-          fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
       - name: Dictamen APROBADO sobre el código actual
         env:
           RAMA: ${{ github.head_ref }} # por env, nunca interpolado en el script
         run: |
-          dictamen="auditorias/${RAMA//\//-}/dictamen.md"
+          dir="auditorias/${RAMA#*/}"
           falla() { echo "::error::$1"; exit 1; }
-          [ -f "$dictamen" ] || falla "Falta $dictamen: ejecuta /auditar en Claude Code."
-          grep -qE '^Veredicto: APROBADO\s*$' "$dictamen" || falla "$dictamen no está APROBADO."
-          sha=$(sed -nE 's/^Commit auditado: ([0-9a-f]{40})\s*$/\1/p' "$dictamen")
-          [ -n "$sha" ] && git cat-file -e "$sha^{commit}" 2>/dev/null || falla "El commit auditado no existe en esta rama."
-          cambios=$(git diff --name-only "$sha" HEAD -- . ':(exclude)auditorias')
-          [ -z "$cambios" ] || falla "Hay cambios posteriores a la auditoría; ejecuta /auditar de nuevo: $(echo "$cambios" | tr '\n' ' ')"
+          [ -f "$dir/dictamen.md" ] || falla "Falta $dir/dictamen.md: ejecuta /auditar en Claude Code."
+          grep -qE '^Veredicto: APROBADO\s*$' "$dir/dictamen.md" || falla "$dir/dictamen.md no está APROBADO."
+          esperada=$(sed -nE 's/^Huella: ([0-9a-f]{64})\s*$/\1/p' "$dir/dictamen.md")
+          [ -n "$esperada" ] || falla "$dir/dictamen.md no trae Huella."
+          [ -f "$dir/manifiesto.json" ] || falla "Falta $dir/manifiesto.json."
+          salida=$(node scripts/huella.ts --comparar "$dir/manifiesto.json")
+          [ "$(head -n 1 <<< "$salida")" = "Huella: $esperada" ] ||
+            falla "El código no es el auditado; ejecuta /auditar de nuevo. Diferencias: $(tail -n +2 <<< "$salida" | tr '\n' ' ')"

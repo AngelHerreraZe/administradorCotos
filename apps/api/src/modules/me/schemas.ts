@@ -33,6 +33,8 @@ export const PerfilMe = z
     aceptoAvisoPrivacidad: z.boolean(),
     fechaAceptacionAviso: z.string().nullable(),
     versionAvisoAceptado: z.number().int().nullable(),
+    notifCorreo: z.boolean(),
+    notifWhatsapp: z.boolean(),
     membresias: z.array(Membresia),
     organizaciones: z.array(OrgMembresia),
   })
@@ -51,6 +53,8 @@ export const ActualizarMe = z
       .optional(),
     aceptoAvisoPrivacidad: z.literal(true).optional(),
     versionAvisoAceptado: z.number().int().min(1).optional(),
+    notifCorreo: z.boolean().optional(),
+    notifWhatsapp: z.boolean().optional(),
   })
   .strict()
   .openapi('ActualizarMe');

@@ -29,6 +29,24 @@ const Schema = z.object({
   /** Publica /openapi.json. Apágalo en producción salvo que sea la API de partners. */
   API_DOCS: z.stringbool().default(false),
   SENTRY_DSN: z.url().optional(),
+  /** Almacenamiento privado S3/R2 para comprobantes y CFDI XML/PDF. */
+  S3_ENDPOINT: z.url({ protocol: /^https?$/ }).optional(),
+  S3_REGION: z.string().min(1).default('us-east-1'),
+  S3_BUCKET: z.string().min(1).optional(),
+  S3_ACCESS_KEY_ID: z.string().min(1).optional(),
+  S3_SECRET_ACCESS_KEY: z.string().min(1).optional(),
+  /** Conekta (pagos en línea + versión fija + firma RSA de webhooks). */
+  CONEKTA_API_KEY: z.string().min(1).optional(),
+  CONEKTA_API_VERSION: z.string().min(10).default('application/vnd.conekta-v2.3.0+json'),
+  CONEKTA_WEBHOOK_PUBLIC_KEY_PEM: z.string().min(1).optional(),
+  /** PAC para plataformas (Facturapi; llaves de organización cifradas en worker cfdi). */
+  FACTURAPI_API_KEY: z.string().min(1).optional(),
+  /** Stripe Billing B2B. */
+  STRIPE_SECRET_KEY: z.string().min(1).optional(),
+  STRIPE_WEBHOOK_SECRET: z.string().min(1).optional(),
+  STRIPE_PORTAL_RETURN_URL: z.url({ protocol: /^https?$/ }).optional(),
+  /** Llave que Evolution API envía en el header `apikey` de sus webhooks (se compara por hash). */
+  EVOLUTION_WEBHOOK_APIKEY: z.string().min(32).optional(),
 });
 
 export type Env = z.infer<typeof Schema>;

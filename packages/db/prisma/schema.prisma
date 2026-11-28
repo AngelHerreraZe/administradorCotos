@@ -34,7 +34,7 @@ model StaffPlataforma {
   activo    Boolean  @default(true)
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  usuario   Usuario  @relation(fields: [usuarioId], references: [id])
+  usuario Usuario @relation(fields: [usuarioId], references: [id])
 
   @@map("staff_plataforma")
 }
@@ -81,33 +81,35 @@ model WebhookEvent {
 // ──────────────────────────────────────────────────────────────────────
 
 model Organizacion {
-  id               String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  nombre           String       @db.VarChar(200)
-  slug             String       @unique @db.VarChar(100)
-  rfc              String?      @db.VarChar(13)
-  razonSocial      String?      @map("razon_social") @db.VarChar(300)
-  emailContacto    String       @map("email_contacto") @db.Citext
-  telefono         String?      @db.VarChar(20)
+  id            String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  nombre        String  @db.VarChar(200)
+  slug          String  @unique @db.VarChar(100)
+  rfc           String? @db.VarChar(13)
+  razonSocial   String? @map("razon_social") @db.VarChar(300)
+  emailContacto String  @map("email_contacto") @db.Citext
+  telefono      String? @db.VarChar(20)
 
   // Marca Blanca y Custom Domains
-  customDomain     String?      @unique @map("custom_domain") @db.VarChar(255)
-  logoUrl          String?      @map("logo_url")
-  colorPrimario    String?      @default("#1E40AF") @map("color_primario") @db.VarChar(7)
-  colorSecundario  String?      @default("#3B82F6") @map("color_secundario") @db.VarChar(7)
-  faviconUrl       String?      @map("favicon_url")
+  customDomain    String? @unique @map("custom_domain") @db.VarChar(255)
+  logoUrl         String? @map("logo_url")
+  colorPrimario   String? @default("#1E40AF") @map("color_primario") @db.VarChar(7)
+  colorSecundario String? @default("#3B82F6") @map("color_secundario") @db.VarChar(7)
+  faviconUrl      String? @map("favicon_url")
 
   // Billing B2B Wholesale (solo el worker/back-office los modifica)
-  stripeCustomerId String?      @map("stripe_customer_id") @db.VarChar(100)
-  tierMayoreo      String       @default("tier_1") @map("tier_mayoreo") @db.VarChar(20) // tier_1, tier_2, tier_3, enterprise
-  walletCreditos   Decimal      @default(0.00) @map("wallet_creditos") @db.Decimal(12, 2)
-  autoRecarga      Boolean      @default(false) @map("auto_recarga")
-  montoRecargaMin  Decimal      @default(2000.00) @map("monto_recarga_min") @db.Decimal(12, 2)
-  estadoSuscripcion String      @default("activo") @map("estado_suscripcion") @db.VarChar(20) // activo, solo_lectura, suspendido
+  stripeCustomerId     String? @map("stripe_customer_id") @db.VarChar(100)
+  stripeSubscriptionId String? @map("stripe_subscription_id") @db.VarChar(100)
+  stripeSubItemId      String? @map("stripe_sub_item_id") @db.VarChar(100)
+  tierMayoreo          String  @default("tier_1") @map("tier_mayoreo") @db.VarChar(20) // tier_1, tier_2, tier_3, enterprise
+  walletCreditos       Decimal @default(0.00) @map("wallet_creditos") @db.Decimal(12, 2)
+  autoRecarga          Boolean @default(false) @map("auto_recarga")
+  montoRecargaMin      Decimal @default(2000.00) @map("monto_recarga_min") @db.Decimal(12, 2)
+  estadoSuscripcion    String  @default("activo") @map("estado_suscripcion") @db.VarChar(20) // activo, solo_lectura, suspendido
 
   // LFPDPPP y Seguridad
-  avisoPrivacidadUrl String?    @map("aviso_privacidad_url")
-  avisoVersion       Int        @default(1) @map("aviso_version")
-  exigirMfa          Boolean    @default(true) @map("exigir_mfa")
+  avisoPrivacidadUrl String? @map("aviso_privacidad_url")
+  avisoVersion       Int     @default(1) @map("aviso_version")
+  exigirMfa          Boolean @default(true) @map("exigir_mfa")
 
   // Relaciones
   cotos               Coto[]
@@ -117,23 +119,23 @@ model Organizacion {
   soporteAccesos      SoporteAcceso[]
   invitacionesMiembro InvitacionMiembro[]
 
-  activo           Boolean      @default(true)
-  createdAt        DateTime     @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt        DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  activo    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   @@map("organizaciones")
 }
 
 model OrgMiembro {
-  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId          String       @map("org_id") @db.Uuid
-  usuarioId      String       @map("usuario_id") @db.Uuid
-  rol            String       @db.VarChar(20) // org_owner, org_admin
-  activo         Boolean      @default(true)
-  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId     String   @map("org_id") @db.Uuid
+  usuarioId String   @map("usuario_id") @db.Uuid
+  rol       String   @db.VarChar(20) // org_owner, org_admin
+  activo    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  organizacion   Organizacion @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  usuario        Usuario      @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  organizacion Organizacion @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  usuario      Usuario      @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
 
   @@unique([orgId, usuarioId])
   @@index([usuarioId, activo])
@@ -141,18 +143,18 @@ model OrgMiembro {
 }
 
 model PartnerApiKey {
-  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId          String       @map("org_id") @db.Uuid
-  nombre         String       @db.VarChar(100)
-  keyPrefix      String       @map("key_prefix") @db.VarChar(16) // ej. "ac_live_7f8a"
-  keyHash        String       @unique @map("key_hash") @db.Char(64) // SHA-256 del secret
-  scopes         String[]     @default(["read"])
-  ipWhitelist    String[]     @default([]) @map("ip_whitelist")
-  ultimoUso      DateTime?    @map("ultimo_uso") @db.Timestamptz
-  activo         Boolean      @default(true)
-  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId       String    @map("org_id") @db.Uuid
+  nombre      String    @db.VarChar(100)
+  keyPrefix   String    @map("key_prefix") @db.VarChar(16) // ej. "ac_live_7f8a"
+  keyHash     String    @unique @map("key_hash") @db.Char(64) // SHA-256 del secret
+  scopes      String[]  @default(["read"])
+  ipWhitelist String[]  @default([]) @map("ip_whitelist")
+  ultimoUso   DateTime? @map("ultimo_uso") @db.Timestamptz
+  activo      Boolean   @default(true)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
-  organizacion   Organizacion @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  organizacion Organizacion @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@index([orgId])
   @@map("partner_api_keys")
@@ -163,91 +165,98 @@ model PartnerApiKey {
 // ──────────────────────────────────────────────────────────────────────
 
 model Coto {
-  id                    String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId                 String        @map("org_id") @db.Uuid
-  nombre                String        @db.VarChar(200)
-  slug                  String        @db.VarChar(100)
-  zonaHoraria           String        @default("America/Mexico_City") @map("zona_horaria") @db.VarChar(50)
+  id          String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId       String @map("org_id") @db.Uuid
+  nombre      String @db.VarChar(200)
+  slug        String @db.VarChar(100)
+  zonaHoraria String @default("America/Mexico_City") @map("zona_horaria") @db.VarChar(50)
 
   // Ubicación
-  direccion             String?
-  colonia               String?       @db.VarChar(200)
-  ciudad                String?       @db.VarChar(100)
-  estado                String?       @db.VarChar(100)
-  cp                    String?       @db.VarChar(5)
-  latitud               Decimal?      @db.Decimal(10, 8)
-  longitud              Decimal?      @db.Decimal(11, 8)
+  direccion String?
+  colonia   String?  @db.VarChar(200)
+  ciudad    String?  @db.VarChar(100)
+  estado    String?  @db.VarChar(100)
+  cp        String?  @db.VarChar(5)
+  latitud   Decimal? @db.Decimal(10, 8)
+  longitud  Decimal? @db.Decimal(11, 8)
 
   // Configuración Legal y Operativa
-  tipo                  String        @default("coto") @db.VarChar(30)
-  regimenLegal          String?       @map("regimen_legal") @db.VarChar(50)
-  diaCorte              Int           @default(1) @map("dia_corte") @db.SmallInt
-  diaLimitePago         Int           @default(10) @map("dia_limite_pago") @db.SmallInt
-  tasaMoratoria         Decimal       @default(0.00) @map("tasa_moratoria") @db.Decimal(5, 2)
-  tipoMoratoria         String        @default("ninguno") @map("tipo_moratoria") @db.VarChar(10)
-  descuentoProntoPago   Decimal       @default(0.00) @map("descuento_pronto_pago") @db.Decimal(5, 2)
-  diasGracia            Int           @default(0) @map("dias_gracia") @db.SmallInt
+  tipo                String  @default("coto") @db.VarChar(30)
+  regimenLegal        String? @map("regimen_legal") @db.VarChar(50)
+  diaCorte            Int     @default(1) @map("dia_corte") @db.SmallInt
+  diaLimitePago       Int     @default(10) @map("dia_limite_pago") @db.SmallInt
+  tasaMoratoria       Decimal @default(0.00) @map("tasa_moratoria") @db.Decimal(5, 2)
+  tipoMoratoria       String  @default("ninguno") @map("tipo_moratoria") @db.VarChar(10)
+  baseMoratoria       String  @default("capital") @map("base_moratoria") @db.VarChar(10)
+  descuentoProntoPago Decimal @default(0.00) @map("descuento_pronto_pago") @db.Decimal(5, 2)
+  diasGracia          Int     @default(0) @map("dias_gracia") @db.SmallInt
 
   // Reglas de Convivencia y Seguridad
-  bloquearAmenidadesMorosos Boolean   @default(true) @map("bloquear_amenidades_morosos")
-  mesesMorosidadBloqueo     Int       @default(2) @map("meses_morosidad_bloqueo") @db.SmallInt
+  bloquearAmenidadesMorosos Boolean @default(true) @map("bloquear_amenidades_morosos")
+  mesesMorosidadBloqueo     Int     @default(2) @map("meses_morosidad_bloqueo") @db.SmallInt
 
-  // Datos fiscales públicos (el CSD vive aparte en CotoSecreto)
-  rfcCoto               String?       @map("rfc_coto") @db.VarChar(13)
-  razonSocialCoto       String?       @map("razon_social_coto") @db.VarChar(300)
-  regimenFiscal         String?       @map("regimen_fiscal") @db.VarChar(5)
-  cpFiscal              String?       @map("cp_fiscal") @db.VarChar(5)
+  // Datos fiscales públicos (el CSD vive en Facturapi por organización o CotoSecreto)
+  rfcCoto         String? @map("rfc_coto") @db.VarChar(13)
+  razonSocialCoto String? @map("razon_social_coto") @db.VarChar(300)
+  regimenFiscal   String? @map("regimen_fiscal") @db.VarChar(5)
+  cpFiscal        String? @map("cp_fiscal") @db.VarChar(5)
+  facturapiOrgId  String? @map("facturapi_org_id") @db.VarChar(100)
 
   // Relaciones
-  organizacion          Organizacion  @relation(fields: [orgId], references: [id], onDelete: Restrict)
-  secreto               CotoSecreto?
-  sectores              Sector[]
-  unidades              Unidad[]
-  miembrosCoto          MiembroCoto[]
-  conceptosCargo        ConceptoCargo[]
-  cargos                Cargo[]
-  pagos                 Pago[]
-  detallePagos          DetallePago[]
-  paymentMethods        PaymentMethod[]
-  cuentasBancarias      CuentaBancaria[]
-  egresos               Egreso[]
-  proveedores           Proveedor[]
-  facturasCfdi          FacturaCfdi[]
-  amenidades            Amenidad[]
-  reservaciones         Reservacion[]
-  comunicados           Comunicado[]
-  tickets               Ticket[]
-  ticketComentarios     TicketComentario[]
-  votaciones            Votacion[]
-  opcionesVoto          OpcionVoto[]
-  votos                 Voto[]
-  invitaciones          InvitacionAcceso[]
-  registrosAcceso       RegistroAcceso[]
-  dispositivosIot       DispositivoIot[]
-  autopayConfigs        AutopayConfig[]
-  autopayIntentos       AutopayIntento[]
-  invitacionesMiembro   InvitacionMiembro[]
+  organizacion           Organizacion           @relation(fields: [orgId], references: [id], onDelete: Restrict)
+  secreto                CotoSecreto?
+  sectores               Sector[]
+  unidades               Unidad[]
+  miembrosCoto           MiembroCoto[]
+  conceptosCargo         ConceptoCargo[]
+  cargos                 Cargo[]
+  moratoriosAplicados    MoratorioAplicado[]
+  aplicacionesSaldoFavor AplicacionSaldoFavor[]
+  pagos                  Pago[]
+  detallePagos           DetallePago[]
+  paymentMethods         PaymentMethod[]
+  cuentasBancarias       CuentaBancaria[]
+  egresos                Egreso[]
+  proveedores            Proveedor[]
+  facturasCfdi           FacturaCfdi[]
+  amenidades             Amenidad[]
+  reservaciones          Reservacion[]
+  comunicados            Comunicado[]
+  lecturasComunicados    ComunicadoLectura[]
+  evolutionInstance      EvolutionInstance?
+  tickets                Ticket[]
+  ticketComentarios      TicketComentario[]
+  votaciones             Votacion[]
+  opcionesVoto           OpcionVoto[]
+  votos                  Voto[]
+  invitaciones           InvitacionAcceso[]
+  registrosAcceso        RegistroAcceso[]
+  dispositivosIot        DispositivoIot[]
+  autopayConfigs         AutopayConfig[]
+  autopayIntentos        AutopayIntento[]
+  invitacionesMiembro    InvitacionMiembro[]
 
-  activo                Boolean       @default(true)
-  createdAt             DateTime      @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt             DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  activo    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   @@unique([orgId, slug])
   @@index([orgId, activo])
   @@map("cotos")
 }
 
-/// CSD del SAT cifrado (AES-256-GCM, llave por organización, AAD = fila).
-/// La API no tiene ningún privilegio sobre esta tabla: escribe vía
-/// app.guardar_csd() y solo el worker de timbrado la lee.
+/// Secretos cifrados por coto (AES-256-GCM, llave por organización, AAD = fila).
+/// La API no tiene ningún privilegio sobre esta tabla: escribe vía funciones
+/// SECURITY DEFINER y solo los workers leen.
 model CotoSecreto {
-  cotoId      String   @id @map("coto_id") @db.Uuid
-  csdCert     Bytes    @map("csd_cert")
-  csdKey      Bytes    @map("csd_key")
-  csdPassword Bytes    @map("csd_password")
-  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  cotoId             String   @id @map("coto_id") @db.Uuid
+  csdCert            Bytes?   @map("csd_cert")
+  csdKey             Bytes?   @map("csd_key")
+  csdPassword        Bytes?   @map("csd_password")
+  facturapiApiKeyEnc Bytes?   @map("facturapi_api_key_enc")
+  updatedAt          DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  coto        Coto     @relation(fields: [cotoId], references: [id], onDelete: Cascade)
+  coto Coto @relation(fields: [cotoId], references: [id], onDelete: Cascade)
 
   @@map("coto_secretos")
 }
@@ -265,40 +274,43 @@ model Sector {
   activo    Boolean  @default(true)
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  coto      Coto     @relation(fields: [cotoId], references: [id], onDelete: Cascade)
-  unidades  Unidad[]
+  coto        Coto         @relation(fields: [cotoId], references: [id], onDelete: Cascade)
+  unidades    Unidad[]
+  comunicados Comunicado[]
 
   @@unique([cotoId, nombre])
   @@map("sectores")
 }
 
 model Unidad {
-  id             String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  cotoId         String           @map("coto_id") @db.Uuid
-  sectorId       String?          @map("sector_id") @db.Uuid
-  numero         String           @db.VarChar(20)
-  tipo           String           @default("casa") @db.VarChar(30)
-  superficieM2   Decimal?         @map("superficie_m2") @db.Decimal(10, 2)
-  indiviso       Decimal?         @db.Decimal(8, 6) // fracción 0..1
-  saldoAFavor    Decimal          @default(0.00) @map("saldo_a_favor") @db.Decimal(12, 2)
-  ocupada        Boolean          @default(true)
-  activo         Boolean          @default(true)
-  createdAt      DateTime         @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt      DateTime         @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  cotoId       String   @map("coto_id") @db.Uuid
+  sectorId     String?  @map("sector_id") @db.Uuid
+  numero       String   @db.VarChar(20)
+  tipo         String   @default("casa") @db.VarChar(30)
+  superficieM2 Decimal? @map("superficie_m2") @db.Decimal(10, 2)
+  indiviso     Decimal? @db.Decimal(8, 6) // fracción 0..1
+  saldoAFavor  Decimal  @default(0.00) @map("saldo_a_favor") @db.Decimal(12, 2)
+  ocupada      Boolean  @default(true)
+  activo       Boolean  @default(true)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  coto           Coto             @relation(fields: [cotoId], references: [id], onDelete: Cascade)
-  sector         Sector?          @relation(fields: [sectorId], references: [id], onDelete: SetNull)
-  miembros       MiembroCoto[]
-  cargos         Cargo[]
-  pagos          Pago[]
-  paymentMethods PaymentMethod[]
-  autopayConfig  AutopayConfig?
-  invitaciones   InvitacionAcceso[]
-  reservaciones  Reservacion[]
-  tickets        Ticket[]
-  votos               Voto[]
-  registrosAcceso     RegistroAcceso[]
-  invitacionesMiembro InvitacionMiembro[]
+  coto                   Coto                   @relation(fields: [cotoId], references: [id], onDelete: Cascade)
+  sector                 Sector?                @relation(fields: [sectorId], references: [id], onDelete: SetNull)
+  miembros               MiembroCoto[]
+  cargos                 Cargo[]
+  moratoriosAplicados    MoratorioAplicado[]
+  aplicacionesSaldoFavor AplicacionSaldoFavor[]
+  pagos                  Pago[]
+  paymentMethods         PaymentMethod[]
+  autopayConfig          AutopayConfig?
+  invitaciones           InvitacionAcceso[]
+  reservaciones          Reservacion[]
+  tickets                Ticket[]
+  votos                  Voto[]
+  registrosAcceso        RegistroAcceso[]
+  invitacionesMiembro    InvitacionMiembro[]
 
   @@unique([cotoId, numero])
   @@index([cotoId, activo, ocupada])
@@ -306,54 +318,60 @@ model Unidad {
 }
 
 model Usuario {
-  id                     String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  authId                 String           @unique @map("auth_id") @db.Uuid
-  nombre                 String           @db.VarChar(100)
-  apellidoPaterno        String           @map("apellido_paterno") @db.VarChar(100)
-  apellidoMaterno        String?          @map("apellido_materno") @db.VarChar(100)
-  email                  String           @unique @db.Citext
-  telefono               String?          @db.VarChar(20)
-  telefonoVerificado     Boolean          @default(false) @map("telefono_verificado")
-  mfaActivo              Boolean          @default(false) @map("mfa_activo")
-  aceptoAvisoPrivacidad  Boolean          @default(false) @map("acepto_aviso_privacidad")
-  fechaAceptacionAviso   DateTime?        @map("fecha_aceptacion_aviso") @db.Timestamptz
-  versionAvisoAceptado   Int?             @map("version_aviso_aceptado")
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  authId                String    @unique @map("auth_id") @db.Uuid
+  nombre                String    @db.VarChar(100)
+  apellidoPaterno       String    @map("apellido_paterno") @db.VarChar(100)
+  apellidoMaterno       String?   @map("apellido_materno") @db.VarChar(100)
+  email                 String    @unique @db.Citext
+  telefono              String?   @db.VarChar(20)
+  telefonoVerificado    Boolean   @default(false) @map("telefono_verificado")
+  mfaActivo             Boolean   @default(false) @map("mfa_activo")
+  aceptoAvisoPrivacidad Boolean   @default(false) @map("acepto_aviso_privacidad")
+  fechaAceptacionAviso  DateTime? @map("fecha_aceptacion_aviso") @db.Timestamptz
+  versionAvisoAceptado  Int?      @map("version_aviso_aceptado")
 
-  miembroOrg             OrgMiembro[]
-  membresiasCoto         MiembroCoto[]
-  paymentMethods         PaymentMethod[]
-  comentariosTicket      TicketComentario[]
-  ticketsReportados      Ticket[]         @relation("TicketReportador")
-  reservaciones          Reservacion[]
-  invitacionesCreadas    InvitacionAcceso[]
-  registrosComoGuardia   RegistroAcceso[]
-  staffPlataforma        StaffPlataforma?
-  soporteOtorgado        SoporteAcceso[]
-  invitacionesEnviadas   InvitacionMiembro[]
+  miembroOrg           OrgMiembro[]
+  membresiasCoto       MiembroCoto[]
+  paymentMethods       PaymentMethod[]
+  comentariosTicket    TicketComentario[]
+  ticketsReportados    Ticket[]            @relation("TicketReportador")
+  reservaciones        Reservacion[]
+  invitacionesCreadas  InvitacionAcceso[]
+  registrosComoGuardia RegistroAcceso[]
+  staffPlataforma      StaffPlataforma?
+  soporteOtorgado      SoporteAcceso[]
+  invitacionesEnviadas InvitacionMiembro[]
+  egresosSolicitados   Egreso[]            @relation("EgresoSolicitante")
+  egresosAprobados     Egreso[]            @relation("EgresoAprobador")
+  autopaysActivados    AutopayConfig[]     @relation("AutopayActivador")
+  lecturasComunicados  ComunicadoLectura[]
+  notifCorreo          Boolean             @default(true) @map("notif_correo")
+  notifWhatsapp        Boolean             @default(true) @map("notif_whatsapp")
 
-  activo                 Boolean          @default(true)
-  createdAt              DateTime         @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt              DateTime         @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  activo    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   @@index([telefono])
   @@map("usuarios")
 }
 
 model MiembroCoto {
-  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  cotoId         String    @map("coto_id") @db.Uuid
-  unidadId       String?   @map("unidad_id") @db.Uuid
-  usuarioId      String    @map("usuario_id") @db.Uuid
-  rol            String    @db.VarChar(30) // coto_admin, coto_tesorero, coto_comite, residente_propietario, residente_inquilino, guardia, proveedor
-  vehiculos      Json?     @default("[]")
-  activo         Boolean   @default(true)
-  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  cotoId    String   @map("coto_id") @db.Uuid
+  unidadId  String?  @map("unidad_id") @db.Uuid
+  usuarioId String   @map("usuario_id") @db.Uuid
+  rol       String   @db.VarChar(30) // coto_admin, coto_tesorero, coto_comite, residente_propietario, residente_inquilino, guardia, proveedor
+  vehiculos Json?    @default("[]")
+  activo    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  coto           Coto      @relation(fields: [cotoId], references: [id], onDelete: Cascade)
-  unidad         Unidad?   @relation(fields: [unidadId], references: [id], onDelete: SetNull)
-  usuario        Usuario   @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
-  votos          Voto[]
+  coto    Coto    @relation(fields: [cotoId], references: [id], onDelete: Cascade)
+  unidad  Unidad? @relation(fields: [unidadId], references: [id], onDelete: SetNull)
+  usuario Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  votos   Voto[]
 
   @@unique([cotoId, usuarioId, rol, unidadId]) // una persona puede ser dueña de varias unidades del mismo coto
   @@index([cotoId, unidadId, rol])
@@ -395,47 +413,49 @@ model InvitacionMiembro {
 // ──────────────────────────────────────────────────────────────────────
 
 model ConceptoCargo {
-  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  cotoId        String   @map("coto_id") @db.Uuid
-  nombre        String   @db.VarChar(100)
-  tipo          String   @db.VarChar(20) // ordinario, extraordinario, multa, cuota_especial, reserva
-  montoDefault  Decimal? @map("monto_default") @db.Decimal(12, 2)
-  usaIndiviso   Boolean  @default(false) @map("usa_indiviso")
-  esRecurrente  Boolean  @default(true) @map("es_recurrente")
-  activo        Boolean  @default(true)
-  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  cotoId       String   @map("coto_id") @db.Uuid
+  nombre       String   @db.VarChar(100)
+  tipo         String   @db.VarChar(20) // ordinario, extraordinario, multa, cuota_especial, reserva
+  montoDefault Decimal? @map("monto_default") @db.Decimal(12, 2)
+  usaIndiviso  Boolean  @default(false) @map("usa_indiviso")
+  esRecurrente Boolean  @default(true) @map("es_recurrente")
+  activo       Boolean  @default(true)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  coto          Coto     @relation(fields: [cotoId], references: [id], onDelete: Cascade)
-  cargos        Cargo[]
+  coto   Coto    @relation(fields: [cotoId], references: [id], onDelete: Cascade)
+  cargos Cargo[]
 
   @@unique([cotoId, nombre])
   @@map("conceptos_cargo")
 }
 
 model Cargo {
-  id                String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  cotoId            String         @map("coto_id") @db.Uuid
-  unidadId          String         @map("unidad_id") @db.Uuid
-  conceptoId        String         @map("concepto_id") @db.Uuid
-  periodo           String         @db.VarChar(7) // "2026-11"
-  montoOriginal     Decimal        @map("monto_original") @db.Decimal(12, 2)
-  montoMoratoria    Decimal        @default(0.00) @map("monto_moratoria") @db.Decimal(12, 2)
-  montoDescuento    Decimal        @default(0.00) @map("monto_descuento") @db.Decimal(12, 2)
-  saldoPendiente    Decimal        @map("saldo_pendiente") @db.Decimal(12, 2)
-  estado            String         @default("pendiente") @db.VarChar(20) // pendiente, parcial, pagado, condonado, cancelado
-  fechaEmision      DateTime       @default(now()) @map("fecha_emision") @db.Date
-  fechaVencimiento  DateTime       @map("fecha_vencimiento") @db.Date
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  cotoId            String   @map("coto_id") @db.Uuid
+  unidadId          String   @map("unidad_id") @db.Uuid
+  conceptoId        String   @map("concepto_id") @db.Uuid
+  periodo           String   @db.VarChar(7) // "2026-11"
+  montoOriginal     Decimal  @map("monto_original") @db.Decimal(12, 2)
+  montoMoratoria    Decimal  @default(0.00) @map("monto_moratoria") @db.Decimal(12, 2)
+  montoDescuento    Decimal  @default(0.00) @map("monto_descuento") @db.Decimal(12, 2)
+  saldoPendiente    Decimal  @map("saldo_pendiente") @db.Decimal(12, 2)
+  estado            String   @default("pendiente") @db.VarChar(20) // pendiente, parcial, pagado, condonado, cancelado
+  fechaEmision      DateTime @default(now()) @map("fecha_emision") @db.Date
+  fechaVencimiento  DateTime @map("fecha_vencimiento") @db.Date
   /// Evita cargos duplicados (generación masiva repetida, reintentos de API).
-  claveIdempotencia String?        @unique @map("clave_idempotencia") @db.VarChar(100)
+  claveIdempotencia String?  @unique @map("clave_idempotencia") @db.VarChar(100)
   notas             String?
-  createdAt         DateTime       @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt         DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  coto              Coto           @relation(fields: [cotoId], references: [id])
-  unidad            Unidad         @relation(fields: [unidadId], references: [id])
-  concepto          ConceptoCargo  @relation(fields: [conceptoId], references: [id])
-  detallePagos      DetallePago[]
-  autopayIntentos   AutopayIntento[]
+  coto                   Coto                   @relation(fields: [cotoId], references: [id])
+  unidad                 Unidad                 @relation(fields: [unidadId], references: [id])
+  concepto               ConceptoCargo          @relation(fields: [conceptoId], references: [id])
+  detallePagos           DetallePago[]
+  autopayIntentos        AutopayIntento[]
+  moratoriosAplicados    MoratorioAplicado[]
+  aplicacionesSaldoFavor AplicacionSaldoFavor[]
 
   @@index([cotoId, periodo])
   @@index([cotoId, estado, fechaVencimiento]) // morosidad / dashboard
@@ -443,47 +463,90 @@ model Cargo {
   @@map("cargos")
 }
 
+model AplicacionSaldoFavor {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  cotoId        String   @map("coto_id") @db.Uuid
+  unidadId      String   @map("unidad_id") @db.Uuid
+  cargoId       String   @map("cargo_id") @db.Uuid
+  montoAplicado Decimal  @map("monto_aplicado") @db.Decimal(12, 2)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  coto   Coto   @relation(fields: [cotoId], references: [id])
+  unidad Unidad @relation(fields: [unidadId], references: [id])
+  cargo  Cargo  @relation(fields: [cargoId], references: [id])
+
+  @@index([cotoId, createdAt])
+  @@index([unidadId, createdAt])
+  @@index([cargoId])
+  @@map("aplicaciones_saldo_favor")
+}
+
+model MoratorioAplicado {
+  cargoId    String   @map("cargo_id") @db.Uuid
+  cotoId     String   @map("coto_id") @db.Uuid
+  unidadId   String   @map("unidad_id") @db.Uuid
+  periodo    String   @db.VarChar(7)
+  fechaCorte DateTime @map("fecha_corte") @db.Date
+  monto      Decimal  @db.Decimal(12, 2)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  cargo  Cargo  @relation(fields: [cargoId], references: [id])
+  coto   Coto   @relation(fields: [cotoId], references: [id])
+  unidad Unidad @relation(fields: [unidadId], references: [id])
+
+  @@id([cargoId, periodo])
+  @@index([cotoId, periodo])
+  @@index([unidadId])
+  @@map("moratorios_aplicados")
+}
+
 model Pago {
-  id                 String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  cotoId             String        @map("coto_id") @db.Uuid
-  unidadId           String        @map("unidad_id") @db.Uuid
-  monto              Decimal       @db.Decimal(12, 2)
-  metodo             String        @db.VarChar(30)
-  gateway            String?       @db.VarChar(20) // conekta, stripe, manual
-  gatewayOrderId     String?       @unique @map("gateway_order_id") @db.VarChar(100)
-  gatewayChargeId    String?       @unique @map("gateway_charge_id") @db.VarChar(100)
-  comprobanteUrl     String?       @map("comprobante_url") // llave de objeto privado, nunca URL pública
-  referenciaBancaria String?       @map("referencia_bancaria") @db.VarChar(50)
-  estado             String        @default("pendiente") @db.VarChar(20) // pendiente, en_revision, confirmado, rechazado, reembolsado
-  fechaPago          DateTime      @default(now()) @map("fecha_pago") @db.Timestamptz
-  fechaConfirmacion  DateTime?     @map("fecha_confirmacion") @db.Timestamptz
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  cotoId             String    @map("coto_id") @db.Uuid
+  unidadId           String    @map("unidad_id") @db.Uuid
+  monto              Decimal   @db.Decimal(12, 2)
+  metodo             String    @db.VarChar(30)
+  gateway            String?   @db.VarChar(20) // conekta, stripe, manual
+  gatewayOrderId     String?   @unique @map("gateway_order_id") @db.VarChar(100)
+  gatewayChargeId    String?   @unique @map("gateway_charge_id") @db.VarChar(100)
+  gatewayMetadata    Json?     @map("gateway_metadata")
+  comprobanteUrl     String?   @map("comprobante_url") // llave de objeto privado, nunca URL pública
+  referenciaBancaria String?   @map("referencia_bancaria") @db.VarChar(50)
+  claveRastreo       String?   @map("clave_rastreo") @db.VarChar(50)
+  claveIdempotencia  String?   @unique @map("clave_idempotencia") @db.VarChar(100)
+  estado             String    @default("pendiente") @db.VarChar(20) // pendiente, en_revision, confirmado, rechazado, reembolsado
+  motivoRechazo      String?   @map("motivo_rechazo")
+  notas              String?
+  fechaPago          DateTime  @default(now()) @map("fecha_pago") @db.Timestamptz
+  fechaConfirmacion  DateTime? @map("fecha_confirmacion") @db.Timestamptz
   /// Marca de aplicación a cargos (app.aplicar_pago es idempotente gracias a esto).
-  aplicadoEn         DateTime?     @map("aplicado_en") @db.Timestamptz
-  createdAt          DateTime      @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt          DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  aplicadoEn         DateTime? @map("aplicado_en") @db.Timestamptz
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  coto               Coto          @relation(fields: [cotoId], references: [id])
-  unidad             Unidad        @relation(fields: [unidadId], references: [id])
-  detallePagos       DetallePago[]
-  facturaCfdi        FacturaCfdi?
-  autopayIntentos    AutopayIntento[]
+  coto            Coto             @relation(fields: [cotoId], references: [id])
+  unidad          Unidad           @relation(fields: [unidadId], references: [id])
+  detallePagos    DetallePago[]
+  facturasCfdi    FacturaCfdi[]
+  autopayIntentos AutopayIntento[]
 
+  @@unique([cotoId, claveRastreo])
   @@index([cotoId, estado, fechaPago])
   @@index([unidadId, fechaPago])
   @@map("pagos")
 }
 
 model DetallePago {
-  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  cotoId         String   @map("coto_id") @db.Uuid
-  pagoId         String   @map("pago_id") @db.Uuid
-  cargoId        String   @map("cargo_id") @db.Uuid
-  montoAplicado  Decimal  @map("monto_aplicado") @db.Decimal(12, 2)
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  cotoId        String   @map("coto_id") @db.Uuid
+  pagoId        String   @map("pago_id") @db.Uuid
+  cargoId       String   @map("cargo_id") @db.Uuid
+  montoAplicado Decimal  @map("monto_aplicado") @db.Decimal(12, 2)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  coto           Coto     @relation(fields: [cotoId], references: [id])
-  pago           Pago     @relation(fields: [pagoId], references: [id])
-  cargo          Cargo    @relation(fields: [cargoId], references: [id])
+  coto  Coto  @relation(fields: [cotoId], references: [id])
+  pago  Pago  @relation(fields: [pagoId], references: [id])
+  cargo Cargo @relation(fields: [cargoId], references: [id])
 
   @@unique([pagoId, cargoId])
   @@index([cargoId])
@@ -491,26 +554,26 @@ model DetallePago {
 }
 
 model PaymentMethod {
-  id                String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  cotoId            String          @map("coto_id") @db.Uuid
-  unidadId          String          @map("unidad_id") @db.Uuid
-  usuarioId         String          @map("usuario_id") @db.Uuid
-  tipo              String          @db.VarChar(20) // card, clabe, spei_mandate
-  gateway           String          @default("conekta") @db.VarChar(20)
-  gatewayCustomerId String          @map("gateway_customer_id") @db.VarChar(100)
-  gatewaySourceId   String?         @map("gateway_source_id") @db.VarChar(100)
-  label             String?         @db.VarChar(100)
-  ultimos4          String?         @map("ultimos_4") @db.Char(4)
-  marcaTarjeta      String?         @map("marca_tarjeta") @db.VarChar(20)
-  fechaExpiracion   String?         @map("fecha_expiracion") @db.VarChar(7)
-  esDefault         Boolean         @default(false) @map("es_default")
-  activo            Boolean         @default(true)
-  createdAt         DateTime        @default(now()) @map("created_at") @db.Timestamptz
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  cotoId            String   @map("coto_id") @db.Uuid
+  unidadId          String   @map("unidad_id") @db.Uuid
+  usuarioId         String   @map("usuario_id") @db.Uuid
+  tipo              String   @db.VarChar(20) // card, clabe, spei_mandate
+  gateway           String   @default("conekta") @db.VarChar(20)
+  gatewayCustomerId String   @map("gateway_customer_id") @db.VarChar(100)
+  gatewaySourceId   String?  @map("gateway_source_id") @db.VarChar(100)
+  label             String?  @db.VarChar(100)
+  ultimos4          String?  @map("ultimos_4") @db.Char(4)
+  marcaTarjeta      String?  @map("marca_tarjeta") @db.VarChar(20)
+  fechaExpiracion   String?  @map("fecha_expiracion") @db.VarChar(7)
+  esDefault         Boolean  @default(false) @map("es_default")
+  activo            Boolean  @default(true)
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  coto              Coto            @relation(fields: [cotoId], references: [id])
-  unidad            Unidad          @relation(fields: [unidadId], references: [id])
-  usuario           Usuario         @relation(fields: [usuarioId], references: [id])
-  autopayConfigs    AutopayConfig[]
+  coto           Coto            @relation(fields: [cotoId], references: [id])
+  unidad         Unidad          @relation(fields: [unidadId], references: [id])
+  usuario        Usuario         @relation(fields: [usuarioId], references: [id])
+  autopayConfigs AutopayConfig[]
 
   @@index([unidadId, activo])
   @@index([usuarioId])
@@ -518,94 +581,120 @@ model PaymentMethod {
 }
 
 model AutopayConfig {
-  id                   String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  cotoId               String           @map("coto_id") @db.Uuid
-  unidadId             String           @unique @map("unidad_id") @db.Uuid
-  paymentMethodId      String?          @map("payment_method_id") @db.Uuid
-  activo               Boolean          @default(false)
-  diaCobro             Int              @default(5) @map("dia_cobro") @db.SmallInt
-  maxReintentos        Int              @default(3) @map("max_reintentos") @db.SmallInt
-  diasEntreReintentos  Int[]            @default([3, 7, 14]) @map("dias_entre_reintentos")
-  intentosFallidos     Int              @default(0) @map("intentos_fallidos") @db.SmallInt
-  ultimoCobroExitoso   DateTime?        @map("ultimo_cobro_exitoso") @db.Date
-  proximoCobro         DateTime?        @map("proximo_cobro") @db.Date
-  estado               String           @default("activo") @db.VarChar(25) // activo, pausado, suspendido_por_fallos, cancelado_por_usuario
-  createdAt            DateTime         @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt            DateTime         @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  cotoId              String    @map("coto_id") @db.Uuid
+  unidadId            String    @unique @map("unidad_id") @db.Uuid
+  paymentMethodId     String?   @map("payment_method_id") @db.Uuid
+  activo              Boolean   @default(false)
+  diaCobro            Int       @default(5) @map("dia_cobro") @db.SmallInt
+  maxReintentos       Int       @default(3) @map("max_reintentos") @db.SmallInt
+  diasEntreReintentos Int[]     @default([3, 7, 14]) @map("dias_entre_reintentos")
+  intentosFallidos    Int       @default(0) @map("intentos_fallidos") @db.SmallInt
+  ultimoCobroExitoso  DateTime? @map("ultimo_cobro_exitoso") @db.Date
+  proximoCobro        DateTime? @map("proximo_cobro") @db.Date
+  estado              String    @default("activo") @db.VarChar(25) // activo, pausado, suspendido_por_fallos, cancelado_por_usuario
+  terminosVersion     String?   @map("terminos_version") @db.VarChar(30)
+  terminosAceptadosEn DateTime? @map("terminos_aceptados_en") @db.Timestamptz
+  activadoPor         String?   @map("activado_por") @db.Uuid
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt           DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  coto                 Coto             @relation(fields: [cotoId], references: [id])
-  unidad               Unidad           @relation(fields: [unidadId], references: [id])
-  paymentMethod        PaymentMethod?   @relation(fields: [paymentMethodId], references: [id])
-  intentos             AutopayIntento[]
+  coto          Coto             @relation(fields: [cotoId], references: [id])
+  unidad        Unidad           @relation(fields: [unidadId], references: [id])
+  paymentMethod PaymentMethod?   @relation(fields: [paymentMethodId], references: [id])
+  activador     Usuario?         @relation("AutopayActivador", fields: [activadoPor], references: [id])
+  intentos      AutopayIntento[]
 
   @@index([estado, proximoCobro]) // scheduler de cobros
+  @@index([activadoPor])
   @@map("autopay_config")
 }
 
 model AutopayIntento {
-  id             String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  autopayId      String        @map("autopay_id") @db.Uuid
-  cotoId         String        @map("coto_id") @db.Uuid
-  cargoId        String?       @map("cargo_id") @db.Uuid
-  pagoId         String?       @map("pago_id") @db.Uuid
-  intentoNum     Int           @map("intento_num") @db.SmallInt
-  montoCentavos  Int           @map("monto_centavos")
-  gateway        String        @db.VarChar(20)
-  gatewayOrderId String?       @map("gateway_order_id") @db.VarChar(100)
-  estado         String        @db.VarChar(20) // pendiente, exitoso, fallido, reembolsado
-  codigoError    String?       @map("codigo_error") @db.VarChar(50)
-  mensajeError   String?       @map("mensaje_error")
-  programadoPara DateTime      @map("programado_para") @db.Timestamptz
-  ejecutadoEn    DateTime?     @map("ejecutado_en") @db.Timestamptz
-  createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  autopayId         String    @map("autopay_id") @db.Uuid
+  cotoId            String    @map("coto_id") @db.Uuid
+  cargoId           String?   @map("cargo_id") @db.Uuid
+  pagoId            String?   @map("pago_id") @db.Uuid
+  intentoNum        Int       @map("intento_num") @db.SmallInt
+  montoCentavos     Int       @map("monto_centavos")
+  gateway           String    @db.VarChar(20)
+  gatewayOrderId    String?   @map("gateway_order_id") @db.VarChar(100)
+  claveIdempotencia String?   @unique @map("clave_idempotencia") @db.VarChar(100)
+  estado            String    @db.VarChar(20) // pendiente, exitoso, fallido, reembolsado
+  codigoError       String?   @map("codigo_error") @db.VarChar(50)
+  mensajeError      String?   @map("mensaje_error")
+  programadoPara    DateTime  @map("programado_para") @db.Timestamptz
+  ejecutadoEn       DateTime? @map("ejecutado_en") @db.Timestamptz
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
-  autopay        AutopayConfig @relation(fields: [autopayId], references: [id])
-  coto           Coto          @relation(fields: [cotoId], references: [id])
-  cargo          Cargo?        @relation(fields: [cargoId], references: [id])
-  pago           Pago?         @relation(fields: [pagoId], references: [id])
+  autopay AutopayConfig @relation(fields: [autopayId], references: [id])
+  coto    Coto          @relation(fields: [cotoId], references: [id])
+  cargo   Cargo?        @relation(fields: [cargoId], references: [id])
+  pago    Pago?         @relation(fields: [pagoId], references: [id])
 
   /// Un reintento del scheduler nunca cobra dos veces el mismo intento.
   @@unique([autopayId, cargoId, intentoNum])
   @@index([programadoPara, estado])
+  @@index([cargoId])
+  @@index([pagoId])
   @@map("autopay_intentos")
 }
 
 model FacturaCfdi {
-  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  cotoId          String   @map("coto_id") @db.Uuid
-  pagoId          String?  @unique @map("pago_id") @db.Uuid
-  uuidCfdi        String?  @unique @map("uuid_cfdi") @db.VarChar(36)
-  serie           String?  @db.VarChar(10)
-  folio           String?  @db.VarChar(20)
-  emisorRfc       String   @map("emisor_rfc") @db.VarChar(13)
-  emisorNombre    String   @map("emisor_nombre") @db.VarChar(300)
-  receptorRfc     String   @map("receptor_rfc") @db.VarChar(13)
-  receptorNombre  String   @map("receptor_nombre") @db.VarChar(300)
-  subtotal        Decimal  @db.Decimal(12, 2)
-  total           Decimal  @db.Decimal(12, 2)
-  xmlUrl          String?  @map("xml_url")
-  pdfUrl          String?  @map("pdf_url")
-  estado          String   @default("timbrado") @db.VarChar(20)
-  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  cotoId            String    @map("coto_id") @db.Uuid
+  pagoId            String?   @map("pago_id") @db.Uuid
+  pacInvoiceId      String?   @unique @map("pac_invoice_id") @db.VarChar(100)
+  tipoComprobante   String    @default("I") @map("tipo_comprobante") @db.Char(1)
+  uuidCfdi          String?   @unique @map("uuid_cfdi") @db.VarChar(36)
+  serie             String?   @db.VarChar(10)
+  folio             String?   @db.VarChar(20)
+  emisorRfc         String    @map("emisor_rfc") @db.VarChar(13)
+  emisorNombre      String    @map("emisor_nombre") @db.VarChar(300)
+  emisorRegimen     String?   @map("emisor_regimen") @db.VarChar(5)
+  receptorRfc       String    @map("receptor_rfc") @db.VarChar(13)
+  receptorNombre    String    @map("receptor_nombre") @db.VarChar(300)
+  receptorRegimen   String?   @map("receptor_regimen") @db.VarChar(5)
+  receptorCp        String?   @map("receptor_cp") @db.VarChar(5)
+  receptorUsoCfdi   String?   @map("receptor_uso_cfdi") @db.VarChar(5)
+  moneda            String    @default("MXN") @db.Char(3)
+  metodoPago        String?   @map("metodo_pago") @db.VarChar(3)
+  formaPago         String?   @map("forma_pago") @db.VarChar(2)
+  pacUtilizado      String    @default("facturapi") @map("pac_utilizado") @db.VarChar(30)
+  subtotal          Decimal   @db.Decimal(12, 2)
+  total             Decimal   @db.Decimal(12, 2)
+  xmlUrl            String?   @map("xml_url")
+  pdfUrl            String?   @map("pdf_url")
+  estado            String    @default("timbrado") @db.VarChar(20)
+  motivoCancelacion String?   @map("motivo_cancelacion") @db.Char(2)
+  sustitucionUuid   String?   @map("sustitucion_uuid") @db.VarChar(36)
+  canceladoEn       DateTime? @map("cancelado_en") @db.Timestamptz
+  claveIdempotencia String?   @unique @map("clave_idempotencia") @db.VarChar(100)
+  paqueteTimbreId   String?   @map("paquete_timbre_id") @db.Uuid
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
-  coto            Coto     @relation(fields: [cotoId], references: [id])
-  pago            Pago?    @relation(fields: [pagoId], references: [id])
+  coto          Coto            @relation(fields: [cotoId], references: [id])
+  pago          Pago?           @relation(fields: [pagoId], references: [id])
+  paqueteTimbre PaqueteTimbres? @relation(fields: [paqueteTimbreId], references: [id])
 
   @@index([cotoId, createdAt])
+  @@index([pagoId])
   @@map("facturas_cfdi")
 }
 
 model PaqueteTimbres {
-  id              String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId           String       @map("org_id") @db.Uuid
-  cantidad        Int
-  usados          Int          @default(0)
-  precioUnitario  Decimal      @map("precio_unitario") @db.Decimal(6, 2)
-  totalPagado     Decimal      @map("total_pagado") @db.Decimal(10, 2)
-  estado          String       @default("activo") @db.VarChar(20)
-  createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId          String   @map("org_id") @db.Uuid
+  cantidad       Int
+  usados         Int      @default(0)
+  precioUnitario Decimal  @map("precio_unitario") @db.Decimal(6, 2)
+  totalPagado    Decimal  @map("total_pagado") @db.Decimal(10, 2)
+  estado         String   @default("activo") @db.VarChar(20)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  organizacion    Organizacion @relation(fields: [orgId], references: [id])
+  organizacion Organizacion  @relation(fields: [orgId], references: [id])
+  facturas     FacturaCfdi[]
 
   @@index([orgId])
   @@map("paquetes_timbres")
@@ -622,8 +711,8 @@ model CuentaBancaria {
   activo          Boolean  @default(true)
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  coto            Coto     @relation(fields: [cotoId], references: [id], onDelete: Cascade)
-  egresos         Egreso[]
+  coto    Coto     @relation(fields: [cotoId], references: [id], onDelete: Cascade)
+  egresos Egreso[]
 
   @@index([cotoId])
   @@map("cuentas_bancarias")
@@ -639,30 +728,48 @@ model Proveedor {
   activo    Boolean  @default(true)
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  coto      Coto     @relation(fields: [cotoId], references: [id], onDelete: Cascade)
-  egresos   Egreso[]
+  coto    Coto     @relation(fields: [cotoId], references: [id], onDelete: Cascade)
+  egresos Egreso[]
 
   @@index([cotoId])
   @@map("proveedores")
 }
 
 model Egreso {
-  id               String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  cotoId           String          @map("coto_id") @db.Uuid
-  cuentaBancariaId String?         @map("cuenta_bancaria_id") @db.Uuid
-  proveedorId      String?         @map("proveedor_id") @db.Uuid
-  concepto         String          @db.VarChar(200)
-  monto            Decimal         @db.Decimal(12, 2)
-  fecha            DateTime        @default(now()) @db.Date
-  estado           String          @default("pendiente") @db.VarChar(20) // pendiente, aprobado, rechazado, pagado
-  createdAt        DateTime        @default(now()) @map("created_at") @db.Timestamptz
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  cotoId            String    @map("coto_id") @db.Uuid
+  cuentaBancariaId  String?   @map("cuenta_bancaria_id") @db.Uuid
+  proveedorId       String?   @map("proveedor_id") @db.Uuid
+  categoria         String    @default("mantenimiento") @db.VarChar(40)
+  concepto          String    @db.VarChar(200)
+  monto             Decimal   @db.Decimal(12, 2)
+  fecha             DateTime  @default(now()) @db.Date
+  estado            String    @default("pendiente") @db.VarChar(20) // pendiente, aprobado, rechazado, pagado
+  solicitadoPor     String?   @map("solicitado_por") @db.Uuid
+  aprobadoPor       String?   @map("aprobado_por") @db.Uuid
+  aprobadoEn        DateTime? @map("aprobado_en") @db.Timestamptz
+  rechazadoEn       DateTime? @map("rechazado_en") @db.Timestamptz
+  motivoRechazo     String?   @map("motivo_rechazo")
+  tieneFactura      Boolean   @default(false) @map("tiene_factura")
+  facturaUuid       String?   @map("factura_uuid") @db.VarChar(36)
+  comprobanteUrl    String?   @map("comprobante_url")
+  notas             String?
+  claveIdempotencia String?   @unique @map("clave_idempotencia") @db.VarChar(100)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  coto             Coto            @relation(fields: [cotoId], references: [id])
-  cuentaBancaria   CuentaBancaria? @relation(fields: [cuentaBancariaId], references: [id])
-  proveedor        Proveedor?      @relation(fields: [proveedorId], references: [id])
+  coto           Coto            @relation(fields: [cotoId], references: [id])
+  cuentaBancaria CuentaBancaria? @relation(fields: [cuentaBancariaId], references: [id])
+  proveedor      Proveedor?      @relation(fields: [proveedorId], references: [id])
+  solicitante    Usuario?        @relation("EgresoSolicitante", fields: [solicitadoPor], references: [id])
+  aprobador      Usuario?        @relation("EgresoAprobador", fields: [aprobadoPor], references: [id])
 
   @@index([cotoId, fecha])
   @@index([cotoId, estado])
+  @@index([cuentaBancariaId])
+  @@index([proveedorId])
+  @@index([solicitadoPor])
+  @@index([aprobadoPor])
   @@map("egresos")
 }
 
@@ -671,26 +778,26 @@ model Egreso {
 // ──────────────────────────────────────────────────────────────────────
 
 model InvitacionAcceso {
-  id             String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  cotoId         String           @map("coto_id") @db.Uuid
-  unidadId       String           @map("unidad_id") @db.Uuid
-  creadoPor      String           @map("creado_por") @db.Uuid
-  nombreInvitado String           @map("nombre_invitado") @db.VarChar(200)
-  tipo           String           @db.VarChar(30) // unico, temporal, frecuente, evento, proveedor, paqueteria
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  cotoId         String    @map("coto_id") @db.Uuid
+  unidadId       String    @map("unidad_id") @db.Uuid
+  creadoPor      String    @map("creado_por") @db.Uuid
+  nombreInvitado String    @map("nombre_invitado") @db.VarChar(200)
+  tipo           String    @db.VarChar(30) // unico, temporal, frecuente, evento, proveedor, paqueteria
   /// SHA-256 (hex) del token del QR. El token en claro solo viaja al residente.
-  tokenHash      String           @unique @map("token_hash") @db.Char(64)
-  codigoNumerico String?          @map("codigo_numerico") @db.Char(6)
-  validoDesde    DateTime         @default(now()) @map("valido_desde") @db.Timestamptz
-  validoHasta    DateTime?        @map("valido_hasta") @db.Timestamptz
-  maxUsos        Int?             @default(1) @map("max_usos") // NULL = ilimitado
-  usosActuales   Int              @default(0) @map("usos_actuales")
-  estado         String           @default("activo") @db.VarChar(20) // activo, usado, expirado, revocado
-  createdAt      DateTime         @default(now()) @map("created_at") @db.Timestamptz
+  tokenHash      String    @unique @map("token_hash") @db.Char(64)
+  codigoNumerico String?   @map("codigo_numerico") @db.Char(6)
+  validoDesde    DateTime  @default(now()) @map("valido_desde") @db.Timestamptz
+  validoHasta    DateTime? @map("valido_hasta") @db.Timestamptz
+  maxUsos        Int?      @default(1) @map("max_usos") // NULL = ilimitado
+  usosActuales   Int       @default(0) @map("usos_actuales")
+  estado         String    @default("activo") @db.VarChar(20) // activo, usado, expirado, revocado
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
-  coto           Coto             @relation(fields: [cotoId], references: [id])
-  unidad         Unidad           @relation(fields: [unidadId], references: [id])
-  creador        Usuario          @relation(fields: [creadoPor], references: [id])
-  registros      RegistroAcceso[]
+  coto      Coto             @relation(fields: [cotoId], references: [id])
+  unidad    Unidad           @relation(fields: [unidadId], references: [id])
+  creador   Usuario          @relation(fields: [creadoPor], references: [id])
+  registros RegistroAcceso[]
 
   @@index([cotoId, estado, validoHasta])
   @@index([cotoId, codigoNumerico])
@@ -699,24 +806,24 @@ model InvitacionAcceso {
 }
 
 model RegistroAcceso {
-  id             String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  cotoId         String            @map("coto_id") @db.Uuid
-  invitacionId   String?           @map("invitacion_id") @db.Uuid
-  unidadDestino  String?           @map("unidad_destino") @db.Uuid
-  guardiaId      String?           @map("guardia_id") @db.Uuid
-  tipoPersona    String            @map("tipo_persona") @db.VarChar(20)
-  nombre         String?           @db.VarChar(200)
-  placa          String?           @db.VarChar(15)
-  metodo         String?           @db.VarChar(20) // qr, codigo, rfid, lpr, manual
-  tipoMovimiento String            @default("entrada") @map("tipo_movimiento") @db.VarChar(10)
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  cotoId         String   @map("coto_id") @db.Uuid
+  invitacionId   String?  @map("invitacion_id") @db.Uuid
+  unidadDestino  String?  @map("unidad_destino") @db.Uuid
+  guardiaId      String?  @map("guardia_id") @db.Uuid
+  tipoPersona    String   @map("tipo_persona") @db.VarChar(20)
+  nombre         String?  @db.VarChar(200)
+  placa          String?  @db.VarChar(15)
+  metodo         String?  @db.VarChar(20) // qr, codigo, rfid, lpr, manual
+  tipoMovimiento String   @default("entrada") @map("tipo_movimiento") @db.VarChar(10)
   autorizado     Boolean
-  fechaHora      DateTime          @default(now()) @map("fecha_hora") @db.Timestamptz
-  createdAt      DateTime          @default(now()) @map("created_at") @db.Timestamptz
+  fechaHora      DateTime @default(now()) @map("fecha_hora") @db.Timestamptz
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  coto           Coto              @relation(fields: [cotoId], references: [id])
-  invitacion     InvitacionAcceso? @relation(fields: [invitacionId], references: [id])
-  unidad         Unidad?           @relation(fields: [unidadDestino], references: [id])
-  guardia        Usuario?          @relation(fields: [guardiaId], references: [id])
+  coto       Coto              @relation(fields: [cotoId], references: [id])
+  invitacion InvitacionAcceso? @relation(fields: [invitacionId], references: [id])
+  unidad     Unidad?           @relation(fields: [unidadDestino], references: [id])
+  guardia    Usuario?          @relation(fields: [guardiaId], references: [id])
 
   @@index([cotoId, fechaHora])
   @@index([unidadDestino, fechaHora])
@@ -724,54 +831,54 @@ model RegistroAcceso {
 }
 
 model DispositivoIot {
-  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  cotoId          String   @map("coto_id") @db.Uuid
-  nombre          String   @db.VarChar(100)
-  tipo            String   @db.VarChar(30) // lector_qr, antena_rfid, camara_lpr, pluma_vehicular
-  macAddress      String?  @map("mac_address") @db.VarChar(17)
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  cotoId     String   @map("coto_id") @db.Uuid
+  nombre     String   @db.VarChar(100)
+  tipo       String   @db.VarChar(30) // lector_qr, antena_rfid, camara_lpr, pluma_vehicular
+  macAddress String?  @map("mac_address") @db.VarChar(17)
   /// SHA-256 de la API key del dispositivo: se emite una vez, nunca se descifra.
-  apiKeyHash      String?  @unique @map("api_key_hash") @db.Char(64)
-  estado          String   @default("activo") @db.VarChar(20)
-  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+  apiKeyHash String?  @unique @map("api_key_hash") @db.Char(64)
+  estado     String   @default("activo") @db.VarChar(20)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  coto            Coto     @relation(fields: [cotoId], references: [id], onDelete: Cascade)
+  coto Coto @relation(fields: [cotoId], references: [id], onDelete: Cascade)
 
   @@index([cotoId])
   @@map("dispositivos_iot")
 }
 
 model Amenidad {
-  id             String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  cotoId         String        @map("coto_id") @db.Uuid
-  nombre         String        @db.VarChar(100)
-  tipo           String?       @db.VarChar(30)
-  capacidadMax   Int?          @map("capacidad_max")
-  activo         Boolean       @default(true)
-  createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  cotoId       String   @map("coto_id") @db.Uuid
+  nombre       String   @db.VarChar(100)
+  tipo         String?  @db.VarChar(30)
+  capacidadMax Int?     @map("capacidad_max")
+  activo       Boolean  @default(true)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  coto           Coto          @relation(fields: [cotoId], references: [id], onDelete: Cascade)
-  reservaciones  Reservacion[]
+  coto          Coto          @relation(fields: [cotoId], references: [id], onDelete: Cascade)
+  reservaciones Reservacion[]
 
   @@index([cotoId])
   @@map("amenidades")
 }
 
 model Reservacion {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  cotoId      String   @map("coto_id") @db.Uuid
-  amenidadId  String   @map("amenidad_id") @db.Uuid
-  unidadId    String   @map("unidad_id") @db.Uuid
-  usuarioId   String   @map("usuario_id") @db.Uuid
-  fecha       DateTime @db.Date
-  horaInicio  DateTime @map("hora_inicio") @db.Time
-  horaFin     DateTime @map("hora_fin") @db.Time
-  estado      String   @default("confirmada") @db.VarChar(20) // pendiente, confirmada, cancelada, completada, no_show
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  cotoId     String   @map("coto_id") @db.Uuid
+  amenidadId String   @map("amenidad_id") @db.Uuid
+  unidadId   String   @map("unidad_id") @db.Uuid
+  usuarioId  String   @map("usuario_id") @db.Uuid
+  fecha      DateTime @db.Date
+  horaInicio DateTime @map("hora_inicio") @db.Time
+  horaFin    DateTime @map("hora_fin") @db.Time
+  estado     String   @default("confirmada") @db.VarChar(20) // pendiente, confirmada, cancelada, completada, no_show
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  coto        Coto     @relation(fields: [cotoId], references: [id])
-  amenidad    Amenidad @relation(fields: [amenidadId], references: [id])
-  unidad      Unidad   @relation(fields: [unidadId], references: [id])
-  usuario     Usuario  @relation(fields: [usuarioId], references: [id])
+  coto     Coto     @relation(fields: [cotoId], references: [id])
+  amenidad Amenidad @relation(fields: [amenidadId], references: [id])
+  unidad   Unidad   @relation(fields: [unidadId], references: [id])
+  usuario  Usuario  @relation(fields: [usuarioId], references: [id])
 
   @@index([amenidadId, fecha, horaInicio])
   @@index([unidadId, fecha])
@@ -779,37 +886,81 @@ model Reservacion {
 }
 
 model Comunicado {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  cotoId      String   @map("coto_id") @db.Uuid
-  titulo      String   @db.VarChar(200)
-  cuerpo      String
-  prioridad   String   @default("normal") @db.VarChar(10)
-  publicado   Boolean  @default(false)
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  cotoId            String    @map("coto_id") @db.Uuid
+  titulo            String    @db.VarChar(200)
+  cuerpo            String
+  prioridad         String    @default("normal") @db.VarChar(10)
+  publicado         Boolean   @default(false)
+  dirigidoA         String    @default("todos") @map("dirigido_a") @db.VarChar(20)
+  sectorId          String?   @map("sector_id") @db.Uuid
+  unidadesIds       String[]  @default([]) @map("unidades_ids") @db.Uuid
+  publicadoEn       DateTime? @map("publicado_en") @db.Timestamptz
+  claveIdempotencia String?   @unique @map("clave_idempotencia") @db.VarChar(100)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
-  coto        Coto     @relation(fields: [cotoId], references: [id])
+  coto     Coto                @relation(fields: [cotoId], references: [id])
+  sector   Sector?             @relation(fields: [sectorId], references: [id])
+  lecturas ComunicadoLectura[]
 
   @@index([cotoId, publicado, createdAt])
   @@map("comunicados")
 }
 
-model Ticket {
-  id           String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  cotoId       String             @map("coto_id") @db.Uuid
-  unidadId     String?            @map("unidad_id") @db.Uuid
-  reportadoPor String             @map("reportado_por") @db.Uuid
-  numero       Int                @default(autoincrement()) // ponytail: secuencia global (revela volumen); contador por coto si molesta
-  titulo       String             @db.VarChar(200)
-  descripcion  String
-  categoria    String?            @db.VarChar(30)
-  estado       String             @default("abierto") @db.VarChar(20)
-  createdAt    DateTime           @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt    DateTime           @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+/// Destinatarios materializados al publicar + acuse de lectura. RLS: cada quien ve su fila.
+model ComunicadoLectura {
+  comunicadoId String    @map("comunicado_id") @db.Uuid
+  usuarioId    String    @map("usuario_id") @db.Uuid
+  cotoId       String    @map("coto_id") @db.Uuid
+  leidoEn      DateTime? @map("leido_en") @db.Timestamptz
+  canal        String?   @db.VarChar(20)
+  notificadoEn DateTime? @map("notificado_en") @db.Timestamptz
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
-  coto         Coto               @relation(fields: [cotoId], references: [id])
-  unidad       Unidad?            @relation(fields: [unidadId], references: [id])
-  reportador   Usuario            @relation("TicketReportador", fields: [reportadoPor], references: [id])
-  comentarios  TicketComentario[]
+  comunicado Comunicado @relation(fields: [comunicadoId], references: [id])
+  usuario    Usuario    @relation(fields: [usuarioId], references: [id])
+  coto       Coto       @relation(fields: [cotoId], references: [id])
+
+  @@id([comunicadoId, usuarioId])
+  @@index([usuarioId, createdAt])
+  @@map("comunicados_lectura")
+}
+
+/// Instancia de Evolution API (WhatsApp) por coto; `instanceName` = `coto_<cotoId>` por constraint.
+model EvolutionInstance {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  cotoId         String   @unique @map("coto_id") @db.Uuid
+  instanceName   String   @unique @map("instance_name") @db.VarChar(60)
+  chipActivadoEn DateTime @default(dbgenerated("CURRENT_DATE")) @map("chip_activado_en") @db.Date
+  activo         Boolean  @default(true)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  coto Coto @relation(fields: [cotoId], references: [id])
+
+  @@map("evolution_instances")
+}
+
+model Ticket {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  cotoId            String   @map("coto_id") @db.Uuid
+  unidadId          String?  @map("unidad_id") @db.Uuid
+  reportadoPor      String   @map("reportado_por") @db.Uuid
+  numero            Int      @default(autoincrement()) // ponytail: secuencia global (revela volumen); contador por coto si molesta
+  titulo            String   @db.VarChar(200)
+  descripcion       String
+  categoria         String?  @db.VarChar(30)
+  estado            String   @default("abierto") @db.VarChar(20)
+  adjuntos          String[] @default([])
+  slaVenceEn        DateTime @default(dbgenerated("(now() + '72:00:00'::interval)")) @map("sla_vence_en") @db.Timestamptz
+  slaVencido        Boolean  @default(false) @map("sla_vencido")
+  claveIdempotencia String?  @unique @map("clave_idempotencia") @db.VarChar(100)
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  coto        Coto               @relation(fields: [cotoId], references: [id])
+  unidad      Unidad?            @relation(fields: [unidadId], references: [id])
+  reportador  Usuario            @relation("TicketReportador", fields: [reportadoPor], references: [id])
+  comentarios TicketComentario[]
 
   @@index([cotoId, estado, createdAt])
   @@index([reportadoPor])
@@ -817,49 +968,51 @@ model Ticket {
 }
 
 model TicketComentario {
-  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  cotoId     String   @map("coto_id") @db.Uuid
-  ticketId   String   @map("ticket_id") @db.Uuid
-  usuarioId  String   @map("usuario_id") @db.Uuid
-  comentario String
-  esInterno  Boolean  @default(false) @map("es_interno") // solo staff lo ve
-  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  cotoId            String   @map("coto_id") @db.Uuid
+  ticketId          String   @map("ticket_id") @db.Uuid
+  usuarioId         String   @map("usuario_id") @db.Uuid
+  comentario        String
+  esInterno         Boolean  @default(false) @map("es_interno") // solo staff lo ve
+  claveIdempotencia String?  @unique @map("clave_idempotencia") @db.VarChar(100)
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  coto       Coto     @relation(fields: [cotoId], references: [id])
-  ticket     Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
-  usuario    Usuario  @relation(fields: [usuarioId], references: [id])
+  coto    Coto    @relation(fields: [cotoId], references: [id])
+  ticket  Ticket  @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  usuario Usuario @relation(fields: [usuarioId], references: [id])
 
   @@index([ticketId, createdAt])
   @@map("ticket_comentarios")
 }
 
 model Votacion {
-  id                   String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  cotoId               String       @map("coto_id") @db.Uuid
-  titulo               String       @db.VarChar(200)
-  ponderadaPorIndiviso Boolean      @default(false) @map("ponderada_por_indiviso")
-  fechaInicio          DateTime     @map("fecha_inicio") @db.Timestamptz
-  fechaFin             DateTime     @map("fecha_fin") @db.Timestamptz
-  estado               String       @default("borrador") @db.VarChar(20) // borrador, activa, cerrada, cancelada
-  createdAt            DateTime     @default(now()) @map("created_at") @db.Timestamptz
+  id                   String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  cotoId               String   @map("coto_id") @db.Uuid
+  titulo               String   @db.VarChar(200)
+  ponderadaPorIndiviso Boolean  @default(false) @map("ponderada_por_indiviso")
+  fechaInicio          DateTime @map("fecha_inicio") @db.Timestamptz
+  fechaFin             DateTime @map("fecha_fin") @db.Timestamptz
+  estado               String   @default("borrador") @db.VarChar(20) // borrador, programada, activa, cerrada, cancelada
+  claveIdempotencia    String?  @unique @map("clave_idempotencia") @db.VarChar(100)
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  coto                 Coto         @relation(fields: [cotoId], references: [id])
-  opciones             OpcionVoto[]
-  votos                Voto[]
+  coto     Coto         @relation(fields: [cotoId], references: [id])
+  opciones OpcionVoto[]
+  votos    Voto[]
 
   @@index([cotoId, estado])
   @@map("votaciones")
 }
 
 model OpcionVoto {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  cotoId      String   @map("coto_id") @db.Uuid
-  votacionId  String   @map("votacion_id") @db.Uuid
-  texto       String   @db.VarChar(300)
+  id         String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  cotoId     String @map("coto_id") @db.Uuid
+  votacionId String @map("votacion_id") @db.Uuid
+  texto      String @db.VarChar(300)
 
-  coto        Coto     @relation(fields: [cotoId], references: [id])
-  votacion    Votacion @relation(fields: [votacionId], references: [id], onDelete: Cascade)
-  votos       Voto[]
+  coto     Coto     @relation(fields: [cotoId], references: [id])
+  votacion Votacion @relation(fields: [votacionId], references: [id], onDelete: Cascade)
+  votos    Voto[]
 
   @@index([votacionId])
   @@map("opciones_voto")
@@ -867,20 +1020,20 @@ model OpcionVoto {
 
 /// Inmutable. Se emite solo vía app.votar(); un voto por unidad.
 model Voto {
-  id         String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  votacionId String      @map("votacion_id") @db.Uuid
-  cotoId     String      @map("coto_id") @db.Uuid
-  opcionId   String      @map("opcion_id") @db.Uuid
-  miembroId  String      @map("miembro_id") @db.Uuid
-  unidadId   String      @map("unidad_id") @db.Uuid
-  peso       Decimal     @default(1) @db.Decimal(10, 6)
-  emitidoEn  DateTime    @default(now()) @map("emitido_en") @db.Timestamptz
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  votacionId String   @map("votacion_id") @db.Uuid
+  cotoId     String   @map("coto_id") @db.Uuid
+  opcionId   String   @map("opcion_id") @db.Uuid
+  miembroId  String   @map("miembro_id") @db.Uuid
+  unidadId   String   @map("unidad_id") @db.Uuid
+  peso       Decimal  @default(1) @db.Decimal(10, 6)
+  emitidoEn  DateTime @default(now()) @map("emitido_en") @db.Timestamptz
 
-  coto       Coto        @relation(fields: [cotoId], references: [id])
-  votacion   Votacion    @relation(fields: [votacionId], references: [id])
-  opcion     OpcionVoto  @relation(fields: [opcionId], references: [id])
-  miembro    MiembroCoto @relation(fields: [miembroId], references: [id])
-  unidad     Unidad      @relation(fields: [unidadId], references: [id])
+  coto     Coto        @relation(fields: [cotoId], references: [id])
+  votacion Votacion    @relation(fields: [votacionId], references: [id])
+  opcion   OpcionVoto  @relation(fields: [opcionId], references: [id])
+  miembro  MiembroCoto @relation(fields: [miembroId], references: [id])
+  unidad   Unidad      @relation(fields: [unidadId], references: [id])
 
   @@unique([votacionId, unidadId])
   @@index([opcionId])
@@ -920,7 +1073,7 @@ model AuditLog {
   recursoId      String?  @map("recurso_id") @db.Uuid
   datosAntes     Json?    @map("datos_antes")
   datosDespues   Json?    @map("datos_despues")
-  metadata       Json?    // rol de BD, request id, IP
+  metadata       Json? // rol de BD, request id, IP
   hashAnterior   String   @map("hash_anterior") @db.Char(64)
   hashIntegridad String   @map("hash_integridad") @db.Char(64)
   createdAt      DateTime @map("created_at") @db.Timestamptz

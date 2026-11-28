@@ -7,12 +7,10 @@ import type { AppEnv } from '../types.ts';
 import { problema } from './errors.ts';
 
 /**
- * Cabeceras para una API JSON (modern-web-guidance › security): la respuesta nunca es un
- * documento, así que CSP cierra todo; HSTS largo; CORP same-origin (las peticiones CORS
- * no se ven afectadas); sin caché salvo que la ruta lo declare (CDN + multi-tenant = fuga).
- * Autenticación por header Authorization: sin cookies, sin CSRF y sin Fetch-Metadata aquí.
+ * Cabeceras base y límite de cuerpo para toda la API (modern-web-guidance › security).
+ * Se aplica antes de los webhooks (que además quedan fuera de CORS y de auth).
  */
-export function seguridad(env: Env): MiddlewareHandler<AppEnv>[] {
+export function seguridadBase(): MiddlewareHandler<AppEnv>[] {
   return [
     secureHeaders({
       strictTransportSecurity: 'max-age=31536000; includeSubDomains; preload',
@@ -32,18 +30,26 @@ export function seguridad(env: Env): MiddlewareHandler<AppEnv>[] {
       await next();
       if (!c.res.headers.has('Cache-Control')) c.res.headers.set('Cache-Control', 'no-store');
     },
-    cors({
-      origin: (origin) => (env.CORS_ORIGINS.includes(origin) ? origin : null),
-      allowMethods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE'],
-      allowHeaders: ['Authorization', 'Content-Type', 'Idempotency-Key', 'X-Request-Id', 'X-Coto-Id'],
-      exposeHeaders: ['X-Request-Id'],
-      credentials: false,
-      maxAge: 600,
-    }),
     // Archivos grandes (comprobantes, CSD) van directo al storage con URL firmada, no por la API.
     bodyLimit({
       maxSize: 1024 * 1024,
       onError: (c) => problema(c, 413, 'cuerpo_muy_grande', 'La petición es demasiado grande'),
     }),
   ];
+}
+
+/** CORS por lista blanca exacta (modern-web-guidance › validate-origins). Solo rutas autenticadas/públicas web. */
+export function seguridadCors(env: Env): MiddlewareHandler<AppEnv> {
+  return cors({
+    origin: (origin) => (env.CORS_ORIGINS.includes(origin) ? origin : null),
+    allowMethods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE'],
+    allowHeaders: ['Authorization', 'Content-Type', 'Idempotency-Key', 'X-Request-Id', 'X-Coto-Id'],
+    exposeHeaders: ['X-Request-Id'],
+    credentials: false,
+    maxAge: 600,
+  });
+}
+
+export function seguridad(env: Env): MiddlewareHandler<AppEnv>[] {
+  return [...seguridadBase(), seguridadCors(env)];
 }
